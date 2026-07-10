@@ -12,11 +12,13 @@ let project = Project(
             infoPlist: .extendingDefault(with: [
                 "NSCameraUsageDescription": "ShadeCam uses the camera to render your live shader preview.",
                 "NSMainStoryboardFile": "",
+                "NSMicrophoneUsageDescription": "ShadeCam uses the microphone to drive audio-reactive shaders.",
             ]),
             sources: ["Sources/**"],
             resources: ["Resources/**"],
             entitlements: .dictionary([
                 "com.apple.security.app-sandbox": true,
+                "com.apple.security.device.audio-input": true,
                 "com.apple.security.device.camera": true,
                 "com.apple.security.files.user-selected.read-write": true,
             ]),

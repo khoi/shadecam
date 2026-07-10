@@ -2,8 +2,8 @@ import SwiftUI
 
 struct ContentView: View {
     @State private var signalBus: SignalBus
-    @State private var signalTextureStore: SignalTextureStore
     @State private var camera: CameraCaptureService
+    @State private var audio: AudioCaptureService
     @State private var shader = ShaderEditorModel()
     @State private var renderControl = RenderControl()
     @State private var renderMetrics = RenderMetrics()
@@ -12,9 +12,15 @@ struct ContentView: View {
 
     init() {
         let signalBus = SignalBus.standard
+        let signalTextureStore = SignalTextureStore()
         _signalBus = State(initialValue: signalBus)
-        _signalTextureStore = State(initialValue: SignalTextureStore())
         _camera = State(initialValue: CameraCaptureService(signalBus: signalBus))
+        _audio = State(
+            initialValue: AudioCaptureService(
+                signalBus: signalBus,
+                signalTextureStore: signalTextureStore
+            )
+        )
     }
 
     var body: some View {
@@ -43,7 +49,7 @@ struct ContentView: View {
                     CameraPreviewView(
                         frameStore: camera.frameStore,
                         maskStore: camera.maskStore,
-                        signalTextureStore: signalTextureStore,
+                        signalTextureStore: audio.signalTextureStore,
                         signalBus: signalBus,
                         pipelineStore: shader.pipelineStore,
                         renderControl: renderControl,
@@ -73,16 +79,19 @@ struct ContentView: View {
         }
         .task {
             camera.setNeeds(shader.needs)
+            audio.setNeeds(shader.needs)
             await camera.start()
         }
         .onDisappear {
             camera.stop()
+            audio.stop()
         }
         .onChange(of: segmentationQuality) { _, quality in
             camera.setSegmentationQuality(quality)
         }
         .onChange(of: shader.needs) { _, needs in
             camera.setNeeds(needs)
+            audio.setNeeds(needs)
         }
         .toolbar {
             ToolbarItem {
