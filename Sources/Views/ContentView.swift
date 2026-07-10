@@ -57,6 +57,7 @@ struct ContentView: View {
             }
         }
         .task {
+            camera.setNeeds(shader.needs)
             await camera.start()
         }
         .onDisappear {
@@ -64,6 +65,9 @@ struct ContentView: View {
         }
         .onChange(of: segmentationQuality) { _, quality in
             camera.setSegmentationQuality(quality)
+        }
+        .onChange(of: shader.needs) { _, needs in
+            camera.setNeeds(needs)
         }
         .toolbar {
             ToolbarItem {

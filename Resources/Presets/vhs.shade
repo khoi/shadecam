@@ -1,3 +1,6 @@
+/*SHADE
+{"needs": ["mask"]}
+SHADE*/
 float vhsHash(float2 p) {
     return fract(sin(dot(p, float2(127.1, 311.7))) * 43758.5453);
 }

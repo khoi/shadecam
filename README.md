@@ -9,3 +9,13 @@ Preset shaders implement `mainImage` with the camera, mask, feedback, plate, sig
 Each `iEvents` element contains envelope, seconds since trigger, and normalized trigger x/y. A never-triggered event has a time of -1. Slots are wave, clap, pinch, push, smile, two reserved slots, and debug.
 
 Each `iHands[h][j]` and `iBody[j]` element contains normalized top-left x/y, confidence, and zero. Confidence is zero until the corresponding producer is active.
+
+## Preset needs
+
+Presets can start with a `/*SHADE` JSON block listing the producers they need. Valid values are `mask`, `hands`, `body`, `audio`, `expression`, `flow`, and `depth`. A preset without a block uses only the camera.
+
+```text
+/*SHADE
+{"needs": ["mask"]}
+SHADE*/
+```

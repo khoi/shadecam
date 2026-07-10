@@ -1,3 +1,6 @@
+/*SHADE
+{"needs": ["mask"]}
+SHADE*/
 float privacyShieldHash(float2 p) {
     return fract(sin(dot(p, float2(269.5, 183.3))) * 43758.5453);
 }

@@ -9,8 +9,9 @@ struct ShaderSourceComposer: Sendable {
         wrapper = try Self.load(name: "wrapper", bundle: bundle)
     }
 
-    func compose(_ userSource: String) -> String {
-        header + "\n#line 1\n" + userSource + "\n" + wrapper
+    func compose(_ userSource: String) throws -> String {
+        let parsed = try ShaderMetadataParser.parse(userSource)
+        return header + "\n#line \(parsed.bodyStartLine)\n" + parsed.body + "\n" + wrapper
     }
 
     private static func load(name: String, bundle: Bundle) throws -> String {

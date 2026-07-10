@@ -20,4 +20,10 @@ final class PixelBufferStore: @unchecked Sendable {
             pixelBuffer
         }
     }
+
+    func clear() {
+        lock.withLock {
+            pixelBuffer = nil
+        }
+    }
 }

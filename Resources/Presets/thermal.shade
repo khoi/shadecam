@@ -1,3 +1,6 @@
+/*SHADE
+{"needs": ["mask"]}
+SHADE*/
 float thermalHash(float2 p) {
     float3 q = fract(float3(p.xyx) * float3(0.1031, 0.1030, 0.0973));
     q += dot(q, q.yzx + 33.33);

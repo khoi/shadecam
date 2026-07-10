@@ -1,3 +1,6 @@
+/*SHADE
+{"needs": ["mask"]}
+SHADE*/
 float maxChannel(float3 color) {
     return max(max(color.r, color.g), color.b);
 }

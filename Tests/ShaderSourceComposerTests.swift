@@ -6,7 +6,22 @@ final class ShaderSourceComposerTests: XCTestCase {
     func testLineDirectivePrecedesUserSource() throws {
         let composer = try ShaderSourceComposer(bundle: Bundle(for: Self.self))
 
-        XCTAssertTrue(composer.compose("user source").contains("\n#line 1\nuser source\n"))
+        XCTAssertTrue(try composer.compose("user source").contains("\n#line 1\nuser source\n"))
+    }
+
+    func testStripsMetadataAndPreservesBodyLineNumbers() throws {
+        let composer = try ShaderSourceComposer(bundle: Bundle(for: Self.self))
+        let source = """
+        /*SHADE
+        {"needs": ["mask"]}
+        SHADE*/
+        user source
+        """
+
+        let composed = try composer.compose(source)
+
+        XCTAssertFalse(composed.contains("/*SHADE"))
+        XCTAssertTrue(composed.contains("\n#line 4\nuser source\n"))
     }
 
     func testCompilerDiagnosticsUseUserRelativeLines() async throws {

@@ -13,6 +13,7 @@ final class CameraCaptureService: NSObject, @unchecked Sendable {
     private let faceDetection: FaceDetectionService
     private var capturedFrameCount = 0
     private var configured = false
+    private var segmentationEnabled = false
 
     init(signalBus: SignalBus) {
         let maskStore = PixelBufferStore()
@@ -51,6 +52,16 @@ final class CameraCaptureService: NSObject, @unchecked Sendable {
     func setSegmentationQuality(_ quality: SegmentationQuality) {
         Task { [segmentation] in
             await segmentation.setQuality(quality)
+        }
+    }
+
+    func setNeeds(_ needs: Set<ShaderNeed>) {
+        let enabled = needs.contains(.mask)
+        captureQueue.async { [self] in
+            segmentationEnabled = enabled
+            if !enabled {
+                maskStore.clear()
+            }
         }
     }
 
@@ -104,15 +115,17 @@ extension CameraCaptureService: AVCaptureVideoDataOutputSampleBufferDelegate {
             }
         }
         frameStore.update(frame)
-        let segmentationFrame = SendablePixelBuffer(value: frame)
-        Task { [segmentation, segmentationFrame] in
-            await segmentation.process(segmentationFrame)
+        let detectionFrame = SendablePixelBuffer(value: frame)
+        if segmentationEnabled {
+            Task { [segmentation, detectionFrame] in
+                await segmentation.process(detectionFrame)
+            }
         }
         capturedFrameCount += 1
         if capturedFrameCount.isMultiple(of: 10) {
             let timestamp = sampleBuffer.presentationTimeStamp.seconds
-            Task { [faceDetection, segmentationFrame] in
-                await faceDetection.process(segmentationFrame, at: timestamp)
+            Task { [faceDetection, detectionFrame] in
+                await faceDetection.process(detectionFrame, at: timestamp)
             }
         }
     }

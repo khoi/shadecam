@@ -30,4 +30,47 @@ final class ShaderPresetTests: XCTestCase {
             }
         }
     }
+
+    func testParsesMetadataAndStripsItFromSource() throws {
+        let source = """
+        /*SHADE
+        {"needs": ["mask", "audio"]}
+        SHADE*/
+        float4 mainImage() {}
+        """
+
+        let parsed = try ShaderMetadataParser.parse(source)
+
+        XCTAssertEqual(parsed.metadata.needs, [.mask, .audio])
+        XCTAssertEqual(parsed.body, "float4 mainImage() {}")
+        XCTAssertEqual(parsed.bodyStartLine, 4)
+    }
+
+    func testSourceWithoutMetadataNeedsOnlyCamera() throws {
+        let parsed = try ShaderMetadataParser.parse("float4 mainImage() {}")
+
+        XCTAssertEqual(parsed.metadata.needs, [])
+        XCTAssertEqual(parsed.bodyStartLine, 1)
+    }
+
+    func testRejectsUnknownNeed() {
+        let source = """
+        /*SHADE
+        {"needs": ["motion"]}
+        SHADE*/
+        float4 mainImage() {}
+        """
+
+        XCTAssertThrowsError(try ShaderMetadataParser.parse(source))
+    }
+
+    func testBundledPresetNeedsMatchMaskUsage() throws {
+        let bundle = Bundle(for: Self.self)
+
+        for preset in ShaderPresetLibrary.load(in: bundle) {
+            let parsed = try ShaderMetadataParser.parse(preset.source(in: bundle))
+            let expected: Set<ShaderNeed> = preset.resourceName == "passthrough" ? [] : [.mask]
+            XCTAssertEqual(parsed.metadata.needs, expected, preset.resourceName)
+        }
+    }
 }

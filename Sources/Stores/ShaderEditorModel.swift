@@ -28,6 +28,10 @@ final class ShaderEditorModel {
     private(set) var banner: String?
     private(set) var isCompiling = false
 
+    var needs: Set<ShaderNeed> {
+        (try? ShaderMetadataParser.parse(source).metadata.needs) ?? []
+    }
+
     let pipelineStore: ShaderPipelineStore
 
     private let bundle: Bundle
