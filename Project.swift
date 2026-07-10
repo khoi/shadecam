@@ -14,8 +14,13 @@ let project = Project(
                 "NSMainStoryboardFile": "",
                 "NSMicrophoneUsageDescription": "ShadeCam uses the microphone to drive audio-reactive shaders.",
             ]),
-            sources: ["Sources/**"],
-            resources: ["Resources/**"],
+            sources: [
+                "Sources/**",
+                "Resources/Models/DepthAnythingV2SmallF16.mlpackage",
+            ],
+            resources: [
+                .glob(pattern: "Resources/**", excluding: ["Resources/Models/**"]),
+            ],
             entitlements: .dictionary([
                 "com.apple.security.app-sandbox": true,
                 "com.apple.security.device.audio-input": true,
