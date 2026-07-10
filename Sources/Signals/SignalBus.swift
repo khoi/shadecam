@@ -22,6 +22,11 @@ enum SignalNames {
         precondition((0..<2).contains(hand) && (0..<21).contains(joint))
         return "hand.\(hand).joint.\(joint)"
     }
+
+    static func body(_ joint: Int) -> String {
+        precondition((0..<19).contains(joint))
+        return "body.joint.\(joint)"
+    }
 }
 
 enum SignalFilterKind: Equatable, Sendable {
@@ -119,6 +124,12 @@ final class SignalBus: @unchecked Sendable {
                     destination: .hand(hand, joint)
                 )
             }
+        } + (0..<19).map { joint in
+            SignalDescriptor(
+                name: SignalNames.body(joint),
+                kind: .continuous(components: 4, configuration: continuous),
+                destination: .body(joint)
+            )
         }
         return SignalBus(descriptors: descriptors)
     }

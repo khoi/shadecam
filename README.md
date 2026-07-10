@@ -12,6 +12,28 @@ Each `iHands[h][j]` and `iBody[j]` element contains normalized top-left x/y, con
 
 Hand 0 is left and hand 1 is right. Unknown chirality is assigned by wrist x, leftmost first. Joint indices are 0 wrist; 1–4 thumb CMC, MP, IP, tip; 5–8 index MCP, PIP, DIP, tip; 9–12 middle MCP, PIP, DIP, tip; 13–16 ring MCP, PIP, DIP, tip; and 17–20 little MCP, PIP, DIP, tip.
 
+| `iBody` index | Joint |
+| ---: | --- |
+| 0 | nose |
+| 1 | leftEye |
+| 2 | rightEye |
+| 3 | leftEar |
+| 4 | rightEar |
+| 5 | neck |
+| 6 | leftShoulder |
+| 7 | rightShoulder |
+| 8 | leftElbow |
+| 9 | rightElbow |
+| 10 | leftWrist |
+| 11 | rightWrist |
+| 12 | root |
+| 13 | leftHip |
+| 14 | rightHip |
+| 15 | leftKnee |
+| 16 | rightKnee |
+| 17 | leftAnkle |
+| 18 | rightAnkle |
+
 ## Preset needs
 
 Presets can start with a `/*SHADE` JSON block listing the producers they need. Valid values are `mask`, `hands`, `body`, `audio`, `expression`, `flow`, and `depth`. A preset without a block uses only the camera.

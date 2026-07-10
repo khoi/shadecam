@@ -25,7 +25,7 @@ final class SignalBusTests: XCTestCase {
         XCTAssertEqual(snapshot.events[7].y, 0.05, accuracy: 0.001)
         XCTAssertEqual(snapshot.events[7].z, 0.25)
         XCTAssertEqual(snapshot.events[7].w, 0.75)
-        XCTAssertEqual(snapshot.values.count, 53)
+        XCTAssertEqual(snapshot.values.count, 72)
         XCTAssertEqual(snapshot.values[SignalNames.debugEvent], snapshot.events[7])
     }
 

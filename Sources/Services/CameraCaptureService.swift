@@ -13,11 +13,13 @@ final class CameraCaptureService: NSObject, @unchecked Sendable {
     private let faceDetection: FaceDetectionService
     private let faceExpression: FaceExpressionService
     private let handPose: HandPoseService
+    private let bodyPose: BodyPoseService
     private var capturedFrameCount = 0
     private var configured = false
     private var segmentationEnabled = false
     private var expressionEnabled = false
     private var handsEnabled = false
+    private var bodyEnabled = false
 
     init(signalBus: SignalBus) {
         let maskStore = PixelBufferStore()
@@ -26,6 +28,7 @@ final class CameraCaptureService: NSObject, @unchecked Sendable {
         faceDetection = FaceDetectionService(signalBus: signalBus)
         faceExpression = FaceExpressionService(signalBus: signalBus)
         handPose = HandPoseService(signalBus: signalBus)
+        bodyPose = BodyPoseService(signalBus: signalBus)
         super.init()
     }
 
@@ -71,6 +74,7 @@ final class CameraCaptureService: NSObject, @unchecked Sendable {
         let segmentationEnabled = needs.contains(.mask)
         let expressionEnabled = needs.contains(.expression)
         let handsEnabled = needs.contains(.hands)
+        let bodyEnabled = needs.contains(.body)
         captureQueue.async { [self] in
             self.segmentationEnabled = segmentationEnabled
             if !segmentationEnabled {
@@ -86,8 +90,14 @@ final class CameraCaptureService: NSObject, @unchecked Sendable {
                     await faceExpression.clear(at: ProcessInfo.processInfo.systemUptime)
                 }
             }
+            if self.bodyEnabled, !bodyEnabled {
+                Task { [bodyPose] in
+                    await bodyPose.clear(at: ProcessInfo.processInfo.systemUptime)
+                }
+            }
             self.expressionEnabled = expressionEnabled
             self.handsEnabled = handsEnabled
+            self.bodyEnabled = bodyEnabled
         }
     }
 
@@ -156,6 +166,11 @@ extension CameraCaptureService: AVCaptureVideoDataOutputSampleBufferDelegate {
         if expressionEnabled {
             Task { [faceExpression, detectionFrame] in
                 await faceExpression.process(detectionFrame, at: timestamp)
+            }
+        }
+        if bodyEnabled {
+            Task { [bodyPose, detectionFrame] in
+                await bodyPose.process(detectionFrame, at: timestamp)
             }
         }
         capturedFrameCount += 1
