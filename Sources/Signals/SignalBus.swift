@@ -14,6 +14,7 @@ enum SignalNames {
         "event.reserved.6",
         "event.debug",
     ]
+    static let clapEvent = events[1]
     static let debugEvent = events[7]
 
     static func hand(_ hand: Int, _ joint: Int) -> String {

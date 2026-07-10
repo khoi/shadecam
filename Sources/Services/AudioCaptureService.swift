@@ -1,4 +1,5 @@
 @preconcurrency import AVFoundation
+@preconcurrency import SoundAnalysis
 import Foundation
 
 final class AudioCaptureService: @unchecked Sendable {
@@ -11,6 +12,8 @@ final class AudioCaptureService: @unchecked Sendable {
     private var dsp = AudioDSP()
     private var enabled = false
     private var tapInstalled = false
+    private var soundAnalyzer: SNAudioStreamAnalyzer?
+    private var soundObserver: ClapSoundObserver?
 
     init(signalBus: SignalBus, signalTextureStore: SignalTextureStore) {
         self.signalBus = signalBus
@@ -93,11 +96,13 @@ final class AudioCaptureService: @unchecked Sendable {
             }
             return
         }
+        let analyzer = makeSoundAnalyzer(format: format)
         input.installTap(
             onBus: 0,
             bufferSize: AVAudioFrameCount(dsp.fftSize),
             format: format
         ) { [weak self] buffer, time in
+            analyzer?.analyze(buffer, atAudioFramePosition: time.sampleTime)
             self?.receive(buffer, at: time)
         }
         stateLock.withLock {
@@ -128,7 +133,24 @@ final class AudioCaptureService: @unchecked Sendable {
             engine.inputNode.removeTap(onBus: 0)
         }
         engine.reset()
+        soundAnalyzer?.completeAnalysis()
+        soundAnalyzer = nil
+        soundObserver = nil
         dsp = AudioDSP()
+    }
+
+    private func makeSoundAnalyzer(format: AVAudioFormat) -> SNAudioStreamAnalyzer? {
+        guard let request = try? SNClassifySoundRequest(classifierIdentifier: .version1) else {
+            return nil
+        }
+        let analyzer = SNAudioStreamAnalyzer(format: format)
+        let observer = ClapSoundObserver(signalBus: signalBus)
+        guard (try? analyzer.add(request, withObserver: observer)) != nil else {
+            return nil
+        }
+        soundAnalyzer = analyzer
+        soundObserver = observer
+        return analyzer
     }
 
     private func receive(_ buffer: AVAudioPCMBuffer, at time: AVAudioTime) {
