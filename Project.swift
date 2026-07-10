@@ -21,7 +21,9 @@ let project = Project(
                 "com.apple.security.files.user-selected.read-write": true,
             ]),
             settings: .settings(base: [
+                "CODE_SIGN_IDENTITY": "Apple Development",
                 "CODE_SIGN_STYLE": "Automatic",
+                "DEVELOPMENT_TEAM": "9ZLSJ2GN2B",
                 "SWIFT_VERSION": "6.0",
             ])
         ),
