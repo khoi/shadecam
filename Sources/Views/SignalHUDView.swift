@@ -1,0 +1,87 @@
+import SwiftUI
+
+struct SignalHUDView: View {
+    let signalBus: SignalBus
+    let renderMetrics: RenderMetrics
+    let dismiss: () -> Void
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.1)) { _ in
+            let snapshot = signalBus.snapshot(at: ProcessInfo.processInfo.systemUptime)
+            VStack(alignment: .leading, spacing: 8) {
+                header
+                vectorRow(name: "face", value: snapshot.faceRect)
+                vectorRow(name: "expression", value: snapshot.expression)
+                vectorRow(name: "audio", value: snapshot.audio)
+
+                VStack(spacing: 4) {
+                    ForEach(Array(SignalNames.events.enumerated()), id: \.offset) { slot, name in
+                        eventRow(name: name, value: snapshot.events[slot])
+                    }
+                }
+
+                ForEach(additionalSignalNames(in: snapshot), id: \.self) { name in
+                    vectorRow(name: name, value: snapshot.values[name]!)
+                }
+            }
+            .font(.caption.monospaced())
+            .padding(10)
+            .frame(width: 300)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+            .shadow(radius: 8, y: 3)
+        }
+    }
+
+    private var header: some View {
+        HStack {
+            Text("SIGNALS")
+                .fontWeight(.semibold)
+            Spacer()
+            Text("\(Int(renderMetrics.currentFramesPerSecond().rounded())) FPS")
+                .foregroundStyle(.secondary)
+            Button(action: dismiss) {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.plain)
+            .help("Hide Signal HUD")
+        }
+    }
+
+    private func vectorRow(name: String, value: SIMD4<Float>) -> some View {
+        HStack(spacing: 6) {
+            Text(name)
+                .frame(width: 72, alignment: .leading)
+                .foregroundStyle(.secondary)
+            Text(String(format: "%.2f  %.2f  %.2f  %.2f", value.x, value.y, value.z, value.w))
+                .lineLimit(1)
+        }
+    }
+
+    private func eventRow(name: String, value: SIMD4<Float>) -> some View {
+        HStack(spacing: 6) {
+            Text(name.replacingOccurrences(of: "event.", with: ""))
+                .frame(width: 72, alignment: .leading)
+                .foregroundStyle(.secondary)
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Rectangle()
+                        .fill(.secondary.opacity(0.2))
+                    Rectangle()
+                        .fill(.cyan)
+                        .frame(width: geometry.size.width * CGFloat(min(max(value.x, 0), 1)))
+                }
+            }
+            .frame(height: 6)
+            Text(value.y < 0 ? "never" : String(format: "%.1fs", value.y))
+                .frame(width: 42, alignment: .trailing)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func additionalSignalNames(in snapshot: SignalSnapshot) -> [String] {
+        let standardNames = Set(
+            [SignalNames.faceRect, SignalNames.expression, SignalNames.audio] + SignalNames.events
+        )
+        return snapshot.values.keys.filter { !standardNames.contains($0) }.sorted()
+    }
+}

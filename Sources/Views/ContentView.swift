@@ -7,6 +7,7 @@ struct ContentView: View {
     @State private var renderControl = RenderControl()
     @State private var renderMetrics = RenderMetrics()
     @State private var segmentationQuality = SegmentationQuality.balanced
+    @State private var showsSignalHUD = false
 
     init() {
         let signalBus = SignalBus.standard
@@ -36,14 +37,25 @@ struct ContentView: View {
             }
 
             HSplitView {
-                CameraPreviewView(
-                    frameStore: camera.frameStore,
-                    maskStore: camera.maskStore,
-                    signalBus: signalBus,
-                    pipelineStore: shader.pipelineStore,
-                    renderControl: renderControl,
-                    renderMetrics: renderMetrics
-                )
+                ZStack(alignment: .topLeading) {
+                    CameraPreviewView(
+                        frameStore: camera.frameStore,
+                        maskStore: camera.maskStore,
+                        signalBus: signalBus,
+                        pipelineStore: shader.pipelineStore,
+                        renderControl: renderControl,
+                        renderMetrics: renderMetrics
+                    )
+
+                    if showsSignalHUD {
+                        SignalHUDView(
+                            signalBus: signalBus,
+                            renderMetrics: renderMetrics,
+                            dismiss: { showsSignalHUD = false }
+                        )
+                        .padding(12)
+                    }
+                }
                 .aspectRatio(camera.frameDimensions.aspectRatio, contentMode: .fit)
                 .frame(minWidth: 520, minHeight: 500)
                 .background(.black)
@@ -70,6 +82,14 @@ struct ContentView: View {
             camera.setNeeds(needs)
         }
         .toolbar {
+            ToolbarItem {
+                Button {
+                    showsSignalHUD.toggle()
+                } label: {
+                    Label("Signal HUD", systemImage: "waveform.path.ecg")
+                }
+                .help(showsSignalHUD ? "Hide Signal HUD" : "Show Signal HUD")
+            }
             ToolbarItem {
                 Button {
                     renderControl.requestPlateCapture()
