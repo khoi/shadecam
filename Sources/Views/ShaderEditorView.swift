@@ -2,6 +2,8 @@ import SwiftUI
 
 struct ShaderEditorView: View {
     @Bindable var model: ShaderEditorModel
+    @Binding var segmentationQuality: SegmentationQuality
+    let renderMetrics: RenderMetrics
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -12,6 +14,22 @@ struct ShaderEditorView: View {
                     }
                 }
                 .labelsHidden()
+
+                Button {
+                    model.loadShader()
+                } label: {
+                    Image(systemName: "folder")
+                }
+                .help("Load Shader")
+                .keyboardShortcut("o", modifiers: .command)
+
+                Button {
+                    model.saveShader()
+                } label: {
+                    Image(systemName: "square.and.arrow.down")
+                }
+                .help("Save Shader")
+                .keyboardShortcut("s", modifiers: .command)
 
                 Spacer()
 
@@ -25,6 +43,29 @@ struct ShaderEditorView: View {
                 }
             }
             .padding(10)
+
+            Divider()
+
+            HStack {
+                Picker("Segmentation", selection: $segmentationQuality) {
+                    ForEach(SegmentationQuality.allCases) { quality in
+                        Text(quality.name).tag(quality)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 180)
+
+                Spacer()
+
+                TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                    Text("\(Int(renderMetrics.currentFramesPerSecond().rounded())) FPS")
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .font(.caption)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
 
             Divider()
 

@@ -50,6 +50,12 @@ final class CameraCaptureService: NSObject, @unchecked Sendable {
         }
     }
 
+    func setSegmentationQuality(_ quality: SegmentationQuality) {
+        Task { [segmentation] in
+            await segmentation.setQuality(quality)
+        }
+    }
+
     private func configureIfNeeded() {
         guard !configured else {
             return

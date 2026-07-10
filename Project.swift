@@ -18,6 +18,7 @@ let project = Project(
             entitlements: .dictionary([
                 "com.apple.security.app-sandbox": true,
                 "com.apple.security.device.camera": true,
+                "com.apple.security.files.user-selected.read-write": true,
             ]),
             settings: .settings(base: [
                 "CODE_SIGN_STYLE": "Automatic",

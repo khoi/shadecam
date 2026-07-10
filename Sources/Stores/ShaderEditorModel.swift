@@ -1,5 +1,7 @@
+import AppKit
 import Foundation
 import Observation
+import UniformTypeIdentifiers
 
 @MainActor
 @Observable
@@ -60,6 +62,39 @@ final class ShaderEditorModel {
 
     func dismissBanner() {
         banner = nil
+    }
+
+    func saveShader() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: "shade") ?? .plainText]
+        panel.nameFieldStringValue = "\(selectedPreset.resourceName).shade"
+
+        guard panel.runModal() == .OK, let url = panel.url else {
+            return
+        }
+        do {
+            try source.write(to: url, atomically: true, encoding: .utf8)
+            banner = nil
+        } catch {
+            banner = error.localizedDescription
+        }
+    }
+
+    func loadShader() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: "shade") ?? .plainText]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+
+        guard panel.runModal() == .OK, let url = panel.url else {
+            return
+        }
+        do {
+            source = try String(contentsOf: url, encoding: .utf8)
+            banner = nil
+        } catch {
+            banner = error.localizedDescription
+        }
     }
 
     private func loadSelectedPreset() {

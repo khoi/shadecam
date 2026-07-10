@@ -4,6 +4,8 @@ struct ContentView: View {
     @State private var camera = CameraCaptureService()
     @State private var shader = ShaderEditorModel()
     @State private var renderControl = RenderControl()
+    @State private var renderMetrics = RenderMetrics()
+    @State private var segmentationQuality = SegmentationQuality.balanced
 
     var body: some View {
         VStack(spacing: 0) {
@@ -32,11 +34,16 @@ struct ContentView: View {
                     maskStore: camera.maskStore,
                     faceRectStore: camera.faceRectStore,
                     pipelineStore: shader.pipelineStore,
-                    renderControl: renderControl
+                    renderControl: renderControl,
+                    renderMetrics: renderMetrics
                 )
                 .frame(minWidth: 520, minHeight: 500)
 
-                ShaderEditorView(model: shader)
+                ShaderEditorView(
+                    model: shader,
+                    segmentationQuality: $segmentationQuality,
+                    renderMetrics: renderMetrics
+                )
                     .frame(minWidth: 360, idealWidth: 460, maxWidth: 620)
             }
         }
@@ -45,6 +52,9 @@ struct ContentView: View {
         }
         .onDisappear {
             camera.stop()
+        }
+        .onChange(of: segmentationQuality) { _, quality in
+            camera.setSegmentationQuality(quality)
         }
         .toolbar {
             ToolbarItem {

@@ -7,6 +7,7 @@ struct CameraPreviewView: NSViewRepresentable {
     let faceRectStore: FaceRectStore
     let pipelineStore: ShaderPipelineStore
     let renderControl: RenderControl
+    let renderMetrics: RenderMetrics
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -14,7 +15,8 @@ struct CameraPreviewView: NSViewRepresentable {
             maskStore: maskStore,
             faceRectStore: faceRectStore,
             pipelineStore: pipelineStore,
-            renderControl: renderControl
+            renderControl: renderControl,
+            renderMetrics: renderMetrics
         )
     }
 
@@ -44,14 +46,16 @@ struct CameraPreviewView: NSViewRepresentable {
             maskStore: PixelBufferStore,
             faceRectStore: FaceRectStore,
             pipelineStore: ShaderPipelineStore,
-            renderControl: RenderControl
+            renderControl: RenderControl,
+            renderMetrics: RenderMetrics
         ) {
             renderer = ShadeCamRenderer(
                 frameStore: frameStore,
                 maskStore: maskStore,
                 faceRectStore: faceRectStore,
                 pipelineStore: pipelineStore,
-                renderControl: renderControl
+                renderControl: renderControl,
+                renderMetrics: renderMetrics
             )
         }
     }

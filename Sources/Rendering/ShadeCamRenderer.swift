@@ -10,6 +10,7 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
     private let faceRectStore: FaceRectStore
     private let pipelineStore: ShaderPipelineStore
     private let renderControl: RenderControl
+    private let renderMetrics: RenderMetrics
     private let commandQueue: MTLCommandQueue
     private let conversionPipeline: MTLRenderPipelineState
     private let maskAlignmentPipeline: MTLRenderPipelineState
@@ -32,7 +33,8 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         maskStore: PixelBufferStore,
         faceRectStore: FaceRectStore,
         pipelineStore: ShaderPipelineStore,
-        renderControl: RenderControl
+        renderControl: RenderControl,
+        renderMetrics: RenderMetrics
     ) {
         let device = pipelineStore.device
         guard
@@ -51,6 +53,7 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         self.faceRectStore = faceRectStore
         self.pipelineStore = pipelineStore
         self.renderControl = renderControl
+        self.renderMetrics = renderMetrics
         self.commandQueue = commandQueue
 
         let conversionDescriptor = MTLRenderPipelineDescriptor()
@@ -198,7 +201,7 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         blitEncoder.endEncoding()
 
         let lease = MetalTextureLease(textures: [luma, chroma] + [maskReference].compactMap { $0 })
-        commandBuffer.addCompletedHandler { [pipelineStore] commandBuffer in
+        commandBuffer.addCompletedHandler { [pipelineStore, renderMetrics] commandBuffer in
             lease.release()
             if let error = commandBuffer.error {
                 pipelineStore.reportFault(
@@ -207,6 +210,7 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
                 )
             } else {
                 pipelineStore.markSucceeded(pipeline)
+                renderMetrics.recordFrame()
             }
         }
         commandBuffer.present(drawable)

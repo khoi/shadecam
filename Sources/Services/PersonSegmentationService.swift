@@ -5,6 +5,7 @@ actor PersonSegmentationService {
     private let maskStore: PixelBufferStore
     private let request: GeneratePersonSegmentationRequest
     private var isProcessing = false
+    private var requestedQuality = SegmentationQuality.balanced
 
     init(maskStore: PixelBufferStore) {
         self.maskStore = maskStore
@@ -13,12 +14,22 @@ actor PersonSegmentationService {
         request.outputPixelFormatType = kCVPixelFormatType_OneComponent16Half
     }
 
+    func setQuality(_ quality: SegmentationQuality) {
+        requestedQuality = quality
+    }
+
     func process(_ frame: SendablePixelBuffer) async {
         guard !isProcessing else {
             return
         }
 
         isProcessing = true
+        request.qualityLevel = switch requestedQuality {
+        case .fast:
+            .fast
+        case .balanced:
+            .balanced
+        }
         defer {
             isProcessing = false
         }
