@@ -15,6 +15,11 @@ enum SignalNames {
         "event.debug",
     ]
     static let debugEvent = events[7]
+
+    static func hand(_ hand: Int, _ joint: Int) -> String {
+        precondition((0..<2).contains(hand) && (0..<21).contains(joint))
+        return "hand.\(hand).joint.\(joint)"
+    }
 }
 
 enum SignalFilterKind: Equatable, Sendable {
@@ -104,6 +109,14 @@ final class SignalBus: @unchecked Sendable {
                 kind: .event(.init()),
                 destination: .event(slot)
             )
+        } + (0..<2).flatMap { hand in
+            (0..<21).map { joint in
+                SignalDescriptor(
+                    name: SignalNames.hand(hand, joint),
+                    kind: .continuous(components: 4, configuration: continuous),
+                    destination: .hand(hand, joint)
+                )
+            }
         }
         return SignalBus(descriptors: descriptors)
     }

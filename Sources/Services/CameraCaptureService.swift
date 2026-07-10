@@ -11,15 +11,18 @@ final class CameraCaptureService: NSObject, @unchecked Sendable {
     private let session = AVCaptureSession()
     private let segmentation: PersonSegmentationService
     private let faceDetection: FaceDetectionService
+    private let handPose: HandPoseService
     private var capturedFrameCount = 0
     private var configured = false
     private var segmentationEnabled = false
+    private var handsEnabled = false
 
     init(signalBus: SignalBus) {
         let maskStore = PixelBufferStore()
         self.maskStore = maskStore
         segmentation = PersonSegmentationService(maskStore: maskStore)
         faceDetection = FaceDetectionService(signalBus: signalBus)
+        handPose = HandPoseService(signalBus: signalBus)
         super.init()
     }
 
@@ -56,12 +59,19 @@ final class CameraCaptureService: NSObject, @unchecked Sendable {
     }
 
     func setNeeds(_ needs: Set<ShaderNeed>) {
-        let enabled = needs.contains(.mask)
+        let segmentationEnabled = needs.contains(.mask)
+        let handsEnabled = needs.contains(.hands)
         captureQueue.async { [self] in
-            segmentationEnabled = enabled
-            if !enabled {
+            self.segmentationEnabled = segmentationEnabled
+            if !segmentationEnabled {
                 maskStore.clear()
             }
+            if self.handsEnabled, !handsEnabled {
+                Task { [handPose] in
+                    await handPose.clear(at: ProcessInfo.processInfo.systemUptime)
+                }
+            }
+            self.handsEnabled = handsEnabled
         }
     }
 
@@ -116,14 +126,19 @@ extension CameraCaptureService: AVCaptureVideoDataOutputSampleBufferDelegate {
         }
         frameStore.update(frame)
         let detectionFrame = SendablePixelBuffer(value: frame)
+        let timestamp = sampleBuffer.presentationTimeStamp.seconds
         if segmentationEnabled {
             Task { [segmentation, detectionFrame] in
                 await segmentation.process(detectionFrame)
             }
         }
+        if handsEnabled {
+            Task { [handPose, detectionFrame] in
+                await handPose.process(detectionFrame, at: timestamp)
+            }
+        }
         capturedFrameCount += 1
         if capturedFrameCount.isMultiple(of: 10) {
-            let timestamp = sampleBuffer.presentationTimeStamp.seconds
             Task { [faceDetection, detectionFrame] in
                 await faceDetection.process(detectionFrame, at: timestamp)
             }

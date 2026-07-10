@@ -10,6 +10,8 @@ Each `iEvents` element contains envelope, seconds since trigger, and normalized 
 
 Each `iHands[h][j]` and `iBody[j]` element contains normalized top-left x/y, confidence, and zero. Confidence is zero until the corresponding producer is active.
 
+Hand 0 is left and hand 1 is right. Unknown chirality is assigned by wrist x, leftmost first. Joint indices are 0 wrist; 1–4 thumb CMC, MP, IP, tip; 5–8 index MCP, PIP, DIP, tip; 9–12 middle MCP, PIP, DIP, tip; 13–16 ring MCP, PIP, DIP, tip; and 17–20 little MCP, PIP, DIP, tip.
+
 ## Preset needs
 
 Presets can start with a `/*SHADE` JSON block listing the producers they need. Valid values are `mask`, `hands`, `body`, `audio`, `expression`, `flow`, and `depth`. A preset without a block uses only the camera.
