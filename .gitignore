@@ -3,3 +3,8 @@
 *.xcworkspace
 Derived/
 .codex/
+!.codex/
+.codex/*
+!.codex/environments/
+.codex/environments/*
+!.codex/environments/environment.toml
