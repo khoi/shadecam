@@ -4,6 +4,11 @@ using namespace metal;
 struct Uniforms {
     float4 iMouse;
     float4 iFaceRect;
+    float4 iExpression;
+    float4 iAudio;
+    float4 iEvents[8];
+    float4 iHands[2][21];
+    float4 iBody[19];
     float2 iResolution;
     float iTime;
     float iTimeDelta;

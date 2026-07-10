@@ -5,7 +5,8 @@ float privacyShieldHash(float2 p) {
 float4 mainImage(float2 fragCoord, constant Uniforms& u,
                  texture2d<float> camera, texture2d<float> mask,
                  texture2d<float> feedback, texture2d<float> plate,
-                 sampler s) {
+                 texture2d<float> signals, texture2d<float> flow,
+                 texture2d<float> depth, sampler s) {
     float2 uv = fragCoord / u.iResolution;
     float3 cameraColor = camera.sample(s, uv).rgb;
     float cellSize = u.iResolution.x * 0.02;

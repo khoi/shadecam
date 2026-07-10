@@ -16,6 +16,9 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
     private let sampler: MTLSamplerState
     private let textureCache: CVMetalTextureCache
     private let emptyMaskTexture: MTLTexture
+    private let signalsTexture: MTLTexture
+    private let flowTexture: MTLTexture
+    private let depthTexture: MTLTexture
     private let startTime = ProcessInfo.processInfo.systemUptime
     private var previousFrameTime: TimeInterval?
     private var frameIndex: UInt32 = 0
@@ -73,25 +76,10 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         }
         self.sampler = sampler
 
-        let emptyMaskDescriptor = MTLTextureDescriptor.texture2DDescriptor(
-            pixelFormat: .r16Float,
-            width: 1,
-            height: 1,
-            mipmapped: false
-        )
-        emptyMaskDescriptor.storageMode = .shared
-        emptyMaskDescriptor.usage = .shaderRead
-        guard let emptyMaskTexture = device.makeTexture(descriptor: emptyMaskDescriptor) else {
-            fatalError("Empty mask texture could not be created")
-        }
-        var emptyMask: UInt16 = 0
-        emptyMaskTexture.replace(
-            region: MTLRegionMake2D(0, 0, 1, 1),
-            mipmapLevel: 0,
-            withBytes: &emptyMask,
-            bytesPerRow: MemoryLayout<UInt16>.stride
-        )
-        self.emptyMaskTexture = emptyMaskTexture
+        emptyMaskTexture = Self.makeZeroTexture(device: device, width: 1, height: 1)
+        signalsTexture = Self.makeZeroTexture(device: device, width: 256, height: 4)
+        flowTexture = Self.makeZeroTexture(device: device, width: 1, height: 1)
+        depthTexture = Self.makeZeroTexture(device: device, width: 1, height: 1)
 
         var textureCache: CVMetalTextureCache?
         guard CVMetalTextureCacheCreate(nil, nil, device, nil, &textureCache) == kCVReturnSuccess,
@@ -161,6 +149,9 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         shaderEncoder.setFragmentTexture(sourceMask, index: 1)
         shaderEncoder.setFragmentTexture(feedback[feedbackReadIndex], index: 2)
         shaderEncoder.setFragmentTexture(plate, index: 3)
+        shaderEncoder.setFragmentTexture(signalsTexture, index: 4)
+        shaderEncoder.setFragmentTexture(flowTexture, index: 5)
+        shaderEncoder.setFragmentTexture(depthTexture, index: 6)
         shaderEncoder.setFragmentSamplerState(sampler, index: 0)
         shaderEncoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
         shaderEncoder.endEncoding()
@@ -361,6 +352,30 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         descriptor.usage = usage
         guard let texture = device.makeTexture(descriptor: descriptor) else {
             fatalError("Metal texture could not be created")
+        }
+        return texture
+    }
+
+    private static func makeZeroTexture(device: MTLDevice, width: Int, height: Int) -> MTLTexture {
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .r16Float,
+            width: width,
+            height: height,
+            mipmapped: false
+        )
+        descriptor.storageMode = .shared
+        descriptor.usage = .shaderRead
+        guard let texture = device.makeTexture(descriptor: descriptor) else {
+            fatalError("Zero texture could not be created")
+        }
+        let zeros = [UInt16](repeating: 0, count: width * height)
+        zeros.withUnsafeBytes {
+            texture.replace(
+                region: MTLRegionMake2D(0, 0, width, height),
+                mipmapLevel: 0,
+                withBytes: $0.baseAddress!,
+                bytesPerRow: width * MemoryLayout<UInt16>.stride
+            )
         }
         return texture
     }

@@ -8,6 +8,9 @@ fragment float4 shade_fragment(ShadeVSOut in [[stage_in]],
                                texture2d<float> mask [[texture(1)]],
                                texture2d<float> feedback [[texture(2)]],
                                texture2d<float> plate [[texture(3)]],
+                               texture2d<float> signals [[texture(4)]],
+                               texture2d<float> flow [[texture(5)]],
+                               texture2d<float> depth [[texture(6)]],
                                sampler s [[sampler(0)]]) {
-    return mainImage(in.position.xy, u, camera, mask, feedback, plate, s);
+    return mainImage(in.position.xy, u, camera, mask, feedback, plate, signals, flow, depth, s);
 }

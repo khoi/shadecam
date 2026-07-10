@@ -33,7 +33,8 @@ float plateAvailability(texture2d<float> plate, sampler s) {
 float4 mainImage(float2 fragCoord, constant Uniforms& u,
                  texture2d<float> camera, texture2d<float> mask,
                  texture2d<float> feedback, texture2d<float> plate,
-                 sampler s) {
+                 texture2d<float> signals, texture2d<float> flow,
+                 texture2d<float> depth, sampler s) {
     float2 uv = fragCoord / u.iResolution;
     float phase = fract(u.iTime / 6.0);
     float person = smoothstep(0.12, 0.82, mask.sample(s, uv).r);

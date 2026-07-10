@@ -18,6 +18,8 @@ final class ShaderSourceComposerTests: XCTestCase {
         float4 mainImage(float2 fragCoord, constant Uniforms& u,
                          texture2d<float> camera, texture2d<float> mask,
                          texture2d<float> feedback, texture2d<float> plate,
+                         texture2d<float> signals, texture2d<float> flow,
+                         texture2d<float> depth,
                          sampler s) {
             return float4(unknownValue);
         }
@@ -29,7 +31,7 @@ final class ShaderSourceComposerTests: XCTestCase {
             XCTFail("Compilation unexpectedly succeeded")
         } catch {
             let diagnostics = ShaderDiagnosticParser.parse(error.localizedDescription)
-            XCTAssertEqual(diagnostics.first?.line, 5)
+            XCTAssertEqual(diagnostics.first?.line, 7)
         }
     }
 }
