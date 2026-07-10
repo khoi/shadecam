@@ -2,15 +2,15 @@ import CoreVideo
 import Vision
 
 actor FaceDetectionService {
-    private let faceRectStore: FaceRectStore
+    private let signalBus: SignalBus
     private let request = DetectFaceRectanglesRequest()
     private var isProcessing = false
 
-    init(faceRectStore: FaceRectStore) {
-        self.faceRectStore = faceRectStore
+    init(signalBus: SignalBus) {
+        self.signalBus = signalBus
     }
 
-    func process(_ frame: SendablePixelBuffer) async {
+    func process(_ frame: SendablePixelBuffer, at timestamp: TimeInterval) async {
         guard !isProcessing else {
             return
         }
@@ -26,18 +26,20 @@ actor FaceDetectionService {
             $0.boundingBox.width * $0.boundingBox.height
                 < $1.boundingBox.width * $1.boundingBox.height
         }) else {
-            faceRectStore.update(.zero)
+            signalBus.write(.zero, to: SignalNames.faceRect, at: timestamp)
             return
         }
 
         let rect = primary.boundingBox.verticallyFlipped()
-        faceRectStore.update(
+        signalBus.write(
             SIMD4(
                 Float(rect.origin.x),
                 Float(rect.origin.y),
                 Float(rect.width),
                 Float(rect.height)
-            )
+            ),
+            to: SignalNames.faceRect,
+            at: timestamp
         )
     }
 }

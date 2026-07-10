@@ -1,11 +1,18 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var camera = CameraCaptureService()
+    @State private var signalBus: SignalBus
+    @State private var camera: CameraCaptureService
     @State private var shader = ShaderEditorModel()
     @State private var renderControl = RenderControl()
     @State private var renderMetrics = RenderMetrics()
     @State private var segmentationQuality = SegmentationQuality.balanced
+
+    init() {
+        let signalBus = SignalBus.standard
+        _signalBus = State(initialValue: signalBus)
+        _camera = State(initialValue: CameraCaptureService(signalBus: signalBus))
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -32,7 +39,7 @@ struct ContentView: View {
                 CameraPreviewView(
                     frameStore: camera.frameStore,
                     maskStore: camera.maskStore,
-                    faceRectStore: camera.faceRectStore,
+                    signalBus: signalBus,
                     pipelineStore: shader.pipelineStore,
                     renderControl: renderControl,
                     renderMetrics: renderMetrics

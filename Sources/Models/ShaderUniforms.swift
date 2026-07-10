@@ -1,4 +1,4 @@
-private protocol ShaderFloat4Storage {
+protocol ShaderFloat4Storage {
     static var count: Int { get }
 }
 

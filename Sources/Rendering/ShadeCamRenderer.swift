@@ -7,7 +7,7 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
 
     private let frameStore: PixelBufferStore
     private let maskStore: PixelBufferStore
-    private let faceRectStore: FaceRectStore
+    private let signalBus: SignalBus
     private let pipelineStore: ShaderPipelineStore
     private let renderControl: RenderControl
     private let renderMetrics: RenderMetrics
@@ -32,7 +32,7 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
     init(
         frameStore: PixelBufferStore,
         maskStore: PixelBufferStore,
-        faceRectStore: FaceRectStore,
+        signalBus: SignalBus,
         pipelineStore: ShaderPipelineStore,
         renderControl: RenderControl,
         renderMetrics: RenderMetrics
@@ -50,7 +50,7 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         self.device = device
         self.frameStore = frameStore
         self.maskStore = maskStore
-        self.faceRectStore = faceRectStore
+        self.signalBus = signalBus
         self.pipelineStore = pipelineStore
         self.renderControl = renderControl
         self.renderMetrics = renderMetrics
@@ -135,9 +135,15 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
             return
         }
         let now = ProcessInfo.processInfo.systemUptime
+        let signalSnapshot = signalBus.snapshot(at: now)
         var uniforms = ShaderUniforms(
             iMouse: renderControl.currentMouse(),
-            iFaceRect: faceRectStore.current(),
+            iFaceRect: signalSnapshot.faceRect,
+            iExpression: signalSnapshot.expression,
+            iAudio: signalSnapshot.audio,
+            iEvents: signalSnapshot.events,
+            iHands: signalSnapshot.hands,
+            iBody: signalSnapshot.body,
             iResolution: SIMD2(Float(drawableWidth), Float(drawableHeight)),
             iTime: Float(now - startTime),
             iTimeDelta: Float(previousFrameTime.map { now - $0 } ?? 0),
