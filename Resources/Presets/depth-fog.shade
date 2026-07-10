@@ -1,0 +1,52 @@
+/*SHADE
+{"needs": ["depth"]}
+SHADE*/
+float depthFogHash(float2 value) {
+    return fract(sin(dot(value, float2(127.1, 311.7))) * 43758.5453);
+}
+
+float depthFogNoise(float2 point) {
+    float2 cell = floor(point);
+    float2 local = fract(point);
+    float2 blend = local * local * (3.0 - 2.0 * local);
+    float low = mix(depthFogHash(cell), depthFogHash(cell + float2(1.0, 0.0)), blend.x);
+    float high = mix(depthFogHash(cell + float2(0.0, 1.0)), depthFogHash(cell + 1.0), blend.x);
+    return mix(low, high, blend.y);
+}
+
+float4 mainImage(float2 fragCoord, constant Uniforms& u,
+                 texture2d<float> camera, texture2d<float> mask,
+                 texture2d<float> feedback, texture2d<float> plate,
+                 texture2d<float> signals, texture2d<float> flow,
+                 texture2d<float> depth, sampler s) {
+    float2 uv = fragCoord / u.iResolution;
+    float3 live = camera.sample(s, uv).rgb;
+    if (depth.get_width() <= 1) {
+        return float4(live, 1.0);
+    }
+
+    float inverseDepth = saturate(depth.sample(s, uv).r);
+    float distance = 1.0 - inverseDepth;
+    float minimumDimension = min(u.iResolution.x, u.iResolution.y);
+    float2 point = fragCoord / minimumDimension;
+    float drift = depthFogNoise(point * 2.4 + float2(u.iTime * 0.025, -u.iTime * 0.018));
+    drift += depthFogNoise(point * 5.8 + float2(-u.iTime * 0.012, u.iTime * 0.016)) * 0.5;
+    drift /= 1.5;
+
+    float fog = 1.0 - exp(-distance * distance * (2.4 + drift * 0.8));
+    float3 coolDark = float3(0.20, 0.32, 0.44);
+    float3 coolLight = float3(0.48, 0.61, 0.72);
+    float3 fogColor = mix(coolDark, coolLight, 0.35 + drift * 0.45);
+    float3 color = mix(live, fogColor, fog * 0.82);
+
+    float2 texel = 1.0 / float2(depth.get_width(), depth.get_height());
+    float horizontal = depth.sample(s, uv + float2(texel.x, 0.0)).r
+        - depth.sample(s, uv - float2(texel.x, 0.0)).r;
+    float vertical = depth.sample(s, uv + float2(0.0, texel.y)).r
+        - depth.sample(s, uv - float2(0.0, texel.y)).r;
+    float edge = length(float2(horizontal, vertical));
+    float near = smoothstep(0.55, 0.92, inverseDepth);
+    float rim = smoothstep(0.015, 0.09, edge) * near * (1.0 - fog);
+    color += float3(1.0, 0.54, 0.25) * rim * 0.11;
+    return float4(saturate(color), 1.0);
+}
