@@ -9,6 +9,7 @@ struct VertexOutput {
 struct DisplayUniforms {
     float2 viewSize;
     float2 cameraSize;
+    float2 maskSize;
 };
 
 vertex VertexOutput fullscreenVertex(uint vertexID [[vertex_id]]) {
@@ -49,6 +50,7 @@ fragment float4 cameraDisplayFragment(
     VertexOutput input [[stage_in]],
     constant DisplayUniforms& uniforms [[buffer(0)]],
     texture2d<float> camera [[texture(0)]],
+    texture2d<float> mask [[texture(1)]],
     sampler textureSampler [[sampler(0)]])
 {
     const float viewAspect = uniforms.viewSize.x / uniforms.viewSize.y;
@@ -66,5 +68,16 @@ fragment float4 cameraDisplayFragment(
     if (any(uv < 0.0) || any(uv > 1.0)) {
         return float4(0.0, 0.0, 0.0, 1.0);
     }
-    return camera.sample(textureSampler, uv);
+    float2 maskUV = uv;
+    const float maskAspect = uniforms.maskSize.x / uniforms.maskSize.y;
+    if (cameraAspect > maskAspect) {
+        maskUV.y = (maskUV.y - 0.5) * maskAspect / cameraAspect + 0.5;
+    } else if (cameraAspect < maskAspect) {
+        maskUV.x = (maskUV.x - 0.5) * cameraAspect / maskAspect + 0.5;
+    }
+
+    const float4 cameraColor = camera.sample(textureSampler, uv);
+    const float person = smoothstep(0.15, 0.85, mask.sample(textureSampler, maskUV).r);
+    const float4 highlighted = mix(cameraColor, float4(0.1, 1.0, 0.45, 1.0), 0.35);
+    return mix(cameraColor * float4(0.35, 0.35, 0.35, 1.0), highlighted, person);
 }

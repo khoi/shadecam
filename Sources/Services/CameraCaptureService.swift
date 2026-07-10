@@ -3,11 +3,20 @@ import CoreVideo
 import Foundation
 
 final class CameraCaptureService: NSObject, @unchecked Sendable {
-    let frameStore = CameraFrameStore()
+    let frameStore = PixelBufferStore()
+    let maskStore: PixelBufferStore
 
     private let captureQueue = DispatchQueue(label: "app.supabit.shadecam.capture")
     private let session = AVCaptureSession()
+    private let segmentation: PersonSegmentationService
     private var configured = false
+
+    override init() {
+        let maskStore = PixelBufferStore()
+        self.maskStore = maskStore
+        segmentation = PersonSegmentationService(maskStore: maskStore)
+        super.init()
+    }
 
     func start() async {
         let authorized = switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -78,5 +87,9 @@ extension CameraCaptureService: AVCaptureVideoDataOutputSampleBufferDelegate {
         }
 
         frameStore.update(frame)
+        let segmentationFrame = SendablePixelBuffer(value: frame)
+        Task { [segmentation, segmentationFrame] in
+            await segmentation.process(segmentationFrame)
+        }
     }
 }

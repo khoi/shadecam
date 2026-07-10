@@ -2,10 +2,11 @@ import MetalKit
 import SwiftUI
 
 struct CameraPreviewView: NSViewRepresentable {
-    let frameStore: CameraFrameStore
+    let frameStore: PixelBufferStore
+    let maskStore: PixelBufferStore
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(frameStore: frameStore)
+        Coordinator(frameStore: frameStore, maskStore: maskStore)
     }
 
     func makeNSView(context: Context) -> MTKView {
@@ -25,8 +26,8 @@ struct CameraPreviewView: NSViewRepresentable {
     final class Coordinator {
         let renderer: ShadeCamRenderer
 
-        init(frameStore: CameraFrameStore) {
-            renderer = ShadeCamRenderer(frameStore: frameStore)
+        init(frameStore: PixelBufferStore, maskStore: PixelBufferStore) {
+            renderer = ShadeCamRenderer(frameStore: frameStore, maskStore: maskStore)
         }
     }
 }

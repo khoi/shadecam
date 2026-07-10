@@ -4,15 +4,17 @@ import MetalKit
 final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
     let device: MTLDevice
 
-    private let frameStore: CameraFrameStore
+    private let frameStore: PixelBufferStore
+    private let maskStore: PixelBufferStore
     private let commandQueue: MTLCommandQueue
     private let conversionPipeline: MTLRenderPipelineState
     private let displayPipeline: MTLRenderPipelineState
     private let sampler: MTLSamplerState
     private let textureCache: CVMetalTextureCache
+    private let emptyMaskTexture: MTLTexture
     private var cameraTexture: MTLTexture?
 
-    init(frameStore: CameraFrameStore) {
+    init(frameStore: PixelBufferStore, maskStore: PixelBufferStore) {
         guard
             let device = MTLCreateSystemDefaultDevice(),
             let commandQueue = device.makeCommandQueue(),
@@ -26,6 +28,7 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
 
         self.device = device
         self.frameStore = frameStore
+        self.maskStore = maskStore
         self.commandQueue = commandQueue
 
         let conversionDescriptor = MTLRenderPipelineDescriptor()
@@ -59,6 +62,26 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         }
         self.sampler = sampler
 
+        let emptyMaskDescriptor = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .r16Float,
+            width: 1,
+            height: 1,
+            mipmapped: false
+        )
+        emptyMaskDescriptor.storageMode = .shared
+        emptyMaskDescriptor.usage = .shaderRead
+        guard let emptyMaskTexture = device.makeTexture(descriptor: emptyMaskDescriptor) else {
+            fatalError("Empty mask texture could not be created")
+        }
+        var emptyMask: UInt16 = 0
+        emptyMaskTexture.replace(
+            region: MTLRegionMake2D(0, 0, 1, 1),
+            mipmapLevel: 0,
+            withBytes: &emptyMask,
+            bytesPerRow: MemoryLayout<UInt16>.stride
+        )
+        self.emptyMaskTexture = emptyMaskTexture
+
         var textureCache: CVMetalTextureCache?
         guard CVMetalTextureCacheCreate(nil, nil, device, nil, &textureCache) == kCVReturnSuccess,
               let textureCache
@@ -73,7 +96,7 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
 
     func draw(in view: MTKView) {
         guard
-            let frame = frameStore.currentFrame(),
+            let frame = frameStore.current(),
             CVPixelBufferGetPlaneCount(frame) == 2,
             let drawable = view.currentDrawable,
             let renderPassDescriptor = view.currentRenderPassDescriptor,
@@ -87,6 +110,11 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         let width = CVPixelBufferGetWidth(frame)
         let height = CVPixelBufferGetHeight(frame)
         let cameraTexture = cameraTexture(width: width, height: height)
+        let maskBuffer = maskStore.current()
+        let maskReference = maskBuffer.flatMap {
+            makeTexture(from: $0, plane: 0, format: .r16Float)
+        }
+        let maskTexture = maskReference.flatMap(CVMetalTextureGetTexture) ?? emptyMaskTexture
 
         let conversionPass = MTLRenderPassDescriptor()
         conversionPass.colorAttachments[0].texture = cameraTexture
@@ -108,16 +136,18 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         }
         var uniforms = DisplayUniforms(
             viewSize: SIMD2(Float(view.drawableSize.width), Float(view.drawableSize.height)),
-            cameraSize: SIMD2(Float(width), Float(height))
+            cameraSize: SIMD2(Float(width), Float(height)),
+            maskSize: SIMD2(Float(maskTexture.width), Float(maskTexture.height))
         )
         displayEncoder.setRenderPipelineState(displayPipeline)
         displayEncoder.setFragmentBytes(&uniforms, length: MemoryLayout<DisplayUniforms>.stride, index: 0)
         displayEncoder.setFragmentTexture(cameraTexture, index: 0)
+        displayEncoder.setFragmentTexture(maskTexture, index: 1)
         displayEncoder.setFragmentSamplerState(sampler, index: 0)
         displayEncoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
         displayEncoder.endEncoding()
 
-        let lease = MetalTextureLease(textures: [luma, chroma])
+        let lease = MetalTextureLease(textures: [luma, chroma] + [maskReference].compactMap { $0 })
         commandBuffer.addCompletedHandler { _ in
             lease.release()
         }
@@ -175,6 +205,7 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
 private struct DisplayUniforms {
     var viewSize: SIMD2<Float>
     var cameraSize: SIMD2<Float>
+    var maskSize: SIMD2<Float>
 }
 
 private final class MetalTextureLease: @unchecked Sendable {
