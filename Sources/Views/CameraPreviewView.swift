@@ -4,6 +4,7 @@ import SwiftUI
 struct CameraPreviewView: NSViewRepresentable {
     let frameStore: PixelBufferStore
     let maskStore: PixelBufferStore
+    let signalTextureStore: SignalTextureStore
     let signalBus: SignalBus
     let pipelineStore: ShaderPipelineStore
     let renderControl: RenderControl
@@ -13,6 +14,7 @@ struct CameraPreviewView: NSViewRepresentable {
         Coordinator(
             frameStore: frameStore,
             maskStore: maskStore,
+            signalTextureStore: signalTextureStore,
             signalBus: signalBus,
             pipelineStore: pipelineStore,
             renderControl: renderControl,
@@ -45,6 +47,7 @@ struct CameraPreviewView: NSViewRepresentable {
         init(
             frameStore: PixelBufferStore,
             maskStore: PixelBufferStore,
+            signalTextureStore: SignalTextureStore,
             signalBus: SignalBus,
             pipelineStore: ShaderPipelineStore,
             renderControl: RenderControl,
@@ -53,6 +56,7 @@ struct CameraPreviewView: NSViewRepresentable {
             renderer = ShadeCamRenderer(
                 frameStore: frameStore,
                 maskStore: maskStore,
+                signalTextureStore: signalTextureStore,
                 signalBus: signalBus,
                 pipelineStore: pipelineStore,
                 renderControl: renderControl,

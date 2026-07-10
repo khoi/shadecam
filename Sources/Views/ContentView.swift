@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @State private var signalBus: SignalBus
+    @State private var signalTextureStore: SignalTextureStore
     @State private var camera: CameraCaptureService
     @State private var shader = ShaderEditorModel()
     @State private var renderControl = RenderControl()
@@ -12,6 +13,7 @@ struct ContentView: View {
     init() {
         let signalBus = SignalBus.standard
         _signalBus = State(initialValue: signalBus)
+        _signalTextureStore = State(initialValue: SignalTextureStore())
         _camera = State(initialValue: CameraCaptureService(signalBus: signalBus))
     }
 
@@ -41,6 +43,7 @@ struct ContentView: View {
                     CameraPreviewView(
                         frameStore: camera.frameStore,
                         maskStore: camera.maskStore,
+                        signalTextureStore: signalTextureStore,
                         signalBus: signalBus,
                         pipelineStore: shader.pipelineStore,
                         renderControl: renderControl,

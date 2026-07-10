@@ -7,6 +7,7 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
 
     private let frameStore: PixelBufferStore
     private let maskStore: PixelBufferStore
+    private let signalTextureStore: SignalTextureStore
     private let signalBus: SignalBus
     private let pipelineStore: ShaderPipelineStore
     private let renderControl: RenderControl
@@ -28,10 +29,12 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
     private var feedbackTextures: [MTLTexture] = []
     private var feedbackReadIndex = 0
     private var feedbackNeedsClear = true
+    private var signalTextureRevision: UInt64 = 0
 
     init(
         frameStore: PixelBufferStore,
         maskStore: PixelBufferStore,
+        signalTextureStore: SignalTextureStore,
         signalBus: SignalBus,
         pipelineStore: ShaderPipelineStore,
         renderControl: RenderControl,
@@ -50,6 +53,7 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         self.device = device
         self.frameStore = frameStore
         self.maskStore = maskStore
+        self.signalTextureStore = signalTextureStore
         self.signalBus = signalBus
         self.pipelineStore = pipelineStore
         self.renderControl = renderControl
@@ -130,6 +134,7 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         )
         preparePlate(commandBuffer: commandBuffer, camera: camera, plate: plate)
         prepareFeedback(commandBuffer: commandBuffer)
+        uploadSignalTextureIfNeeded()
 
         guard let shaderEncoder = makeEncoder(commandBuffer: commandBuffer, target: output) else {
             return
@@ -241,6 +246,22 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
             clear(texture, commandBuffer: commandBuffer)
         }
         feedbackNeedsClear = false
+    }
+
+    private func uploadSignalTextureIfNeeded() {
+        guard let snapshot = signalTextureStore.current(after: signalTextureRevision) else {
+            return
+        }
+        let values = snapshot.frame.values.map { Float16($0).bitPattern }
+        values.withUnsafeBytes {
+            signalsTexture.replace(
+                region: MTLRegionMake2D(0, 0, SignalTextureFrame.width, SignalTextureFrame.height),
+                mipmapLevel: 0,
+                withBytes: $0.baseAddress!,
+                bytesPerRow: SignalTextureFrame.width * MemoryLayout<Float16>.stride
+            )
+        }
+        signalTextureRevision = snapshot.revision
     }
 
     private func clear(_ texture: MTLTexture, commandBuffer: MTLCommandBuffer) {
