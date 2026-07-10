@@ -1,0 +1,23 @@
+float4 mainImage(float2 fragCoord, constant Uniforms& u,
+                 texture2d<float> camera, texture2d<float> mask,
+                 texture2d<float> feedback, texture2d<float> plate,
+                 texture2d<float> signals, texture2d<float> flow,
+                 texture2d<float> depth, sampler s) {
+    float2 uv = fragCoord / u.iResolution;
+    float4 event = u.iEvents[7];
+    float3 cameraColor = camera.sample(s, uv).rgb;
+
+    if (event.y < 0.0) {
+        return float4(cameraColor, 1.0);
+    }
+
+    float aspect = u.iResolution.x / u.iResolution.y;
+    float2 offset = (uv - event.zw) * float2(aspect, 1.0);
+    float distanceToOrigin = length(offset);
+    float radius = event.y * 0.36;
+    float ring = 1.0 - smoothstep(0.0, 0.014, abs(distanceToOrigin - radius));
+    float glow = 1.0 - smoothstep(0.0, 0.06, abs(distanceToOrigin - radius));
+    float3 pulseColor = mix(float3(0.0, 0.72, 1.0), float3(1.0), ring);
+    float3 color = cameraColor + pulseColor * (ring * 0.9 + glow * 0.22) * event.x;
+    return float4(saturate(color), 1.0);
+}

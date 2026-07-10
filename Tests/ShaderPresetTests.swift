@@ -7,6 +7,7 @@ final class ShaderPresetTests: XCTestCase {
         let bundle = Bundle(for: ShaderPresetTests.self)
         let presets = ShaderPresetLibrary.load(in: bundle)
 
+        XCTAssertEqual(presets.count, 12)
         XCTAssertTrue(presets.contains(where: { $0.resourceName == "passthrough" }))
         for preset in presets {
             XCTAssertTrue(try preset.source(in: bundle).contains("float4 mainImage"))
@@ -69,7 +70,8 @@ final class ShaderPresetTests: XCTestCase {
 
         for preset in ShaderPresetLibrary.load(in: bundle) {
             let parsed = try ShaderMetadataParser.parse(preset.source(in: bundle))
-            let expected: Set<ShaderNeed> = preset.resourceName == "passthrough" ? [] : [.mask]
+            let cameraOnlyPresets = ["event-pulse", "passthrough"]
+            let expected: Set<ShaderNeed> = cameraOnlyPresets.contains(preset.resourceName) ? [] : [.mask]
             XCTAssertEqual(parsed.metadata.needs, expected, preset.resourceName)
         }
     }
