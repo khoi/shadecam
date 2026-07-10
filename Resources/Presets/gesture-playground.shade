@@ -1,0 +1,46 @@
+/*SHADE
+{"needs": ["hands"]}
+SHADE*/
+float4 mainImage(float2 fragCoord, constant Uniforms& u,
+                 texture2d<float> camera, texture2d<float> mask,
+                 texture2d<float> feedback, texture2d<float> plate,
+                 texture2d<float> signals, texture2d<float> flow,
+                 texture2d<float> depth, sampler s) {
+    float2 uv = fragCoord / u.iResolution;
+    float aspect = u.iResolution.x / u.iResolution.y;
+    float3 color = camera.sample(s, uv).rgb;
+
+    float4 wave = u.iEvents[0];
+    float2 waveOffset = (uv - wave.zw) * float2(aspect, 1.0);
+    float waveDistance = length(waveOffset);
+    float waveRadius = max(wave.y, 0.0) * 0.32;
+    float waveRing = 1.0 - smoothstep(0.0, 0.012, abs(waveDistance - waveRadius));
+    float waveGlow = 1.0 - smoothstep(0.0, 0.055, abs(waveDistance - waveRadius));
+    color += float3(0.05, 0.72, 1.0) * wave.x * (waveRing + waveGlow * 0.28);
+
+    float4 pinch = u.iEvents[2];
+    float2 pinchOffset = (uv - pinch.zw) * float2(aspect, 1.0);
+    float pinchDistance = length(pinchOffset);
+    float pinchAngle = atan2(pinchOffset.y, pinchOffset.x);
+    float pinchTime = max(pinch.y, 0.0);
+    float sparkRadius = pinchTime * 0.34;
+    float sparkFront = 1.0 - smoothstep(0.0, 0.025, abs(pinchDistance - sparkRadius));
+    float sparkRays = pow(abs(cos(pinchAngle * 7.0 + sin(pinchAngle * 11.0))), 18.0);
+    float pinchCore = 1.0 - smoothstep(0.0, 0.075 + pinchTime * 0.05, pinchDistance);
+    color += float3(1.0, 0.28, 0.02) * pinch.x * sparkFront * sparkRays * 2.2;
+    color += float3(1.0, 0.82, 0.18) * pinch.x * pinchCore * 0.8;
+
+    float4 push = u.iEvents[3];
+    float2 pushOffset = (uv - push.zw) * float2(aspect, 1.0);
+    float pushDistance = length(pushOffset);
+    float pushAngle = atan2(pushOffset.y, pushOffset.x);
+    float pushTime = max(push.y, 0.0);
+    float pushRadius = pushTime * 1.1;
+    float blastFront = 1.0 - smoothstep(0.0, 0.045, abs(pushDistance - pushRadius));
+    float blastFill = 1.0 - smoothstep(0.0, pushRadius, pushDistance);
+    float blastRays = 0.65 + 0.35 * sin(pushAngle * 16.0 - pushTime * 9.0);
+    color += float3(0.72, 0.12, 1.0) * push.x * blastFront * blastRays * 1.35;
+    color += float3(0.2, 0.05, 0.34) * push.x * blastFill * 0.65;
+
+    return float4(saturate(color), 1.0);
+}

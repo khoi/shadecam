@@ -1,0 +1,39 @@
+/*SHADE
+{"needs": ["hands"]}
+SHADE*/
+float handFireHash(float2 p) {
+    return fract(sin(dot(p, float2(127.1, 311.7))) * 43758.5453);
+}
+
+float4 mainImage(float2 fragCoord, constant Uniforms& u,
+                 texture2d<float> camera, texture2d<float> mask,
+                 texture2d<float> feedback, texture2d<float> plate,
+                 texture2d<float> signals, texture2d<float> flow,
+                 texture2d<float> depth, sampler s) {
+    float2 uv = fragCoord / u.iResolution;
+    float aspect = u.iResolution.x / u.iResolution.y;
+    float2 trailOffset = float2(0.0, 2.5 / u.iResolution.y);
+    float3 live = camera.sample(s, uv).rgb;
+    float3 trailSource = feedback.sample(s, uv + trailOffset).rgb;
+    float3 trailCamera = camera.sample(s, uv + trailOffset).rgb;
+    float3 trail = max(trailSource - trailCamera, 0.0) * 0.91;
+    float3 fire = float3(0.0);
+    uint fingertips[5] = {4, 8, 12, 16, 20};
+
+    for (uint hand = 0; hand < 2; ++hand) {
+        for (uint finger = 0; finger < 5; ++finger) {
+            float4 joint = u.iHands[hand][fingertips[finger]];
+            float confidence = smoothstep(0.35, 0.8, joint.z);
+            float2 offset = (uv - joint.xy) * float2(aspect, 1.0);
+            float distanceToTip = length(offset);
+            float seed = handFireHash(float2(hand * 7 + finger, floor(u.iTime * 18.0)));
+            float flicker = 0.82 + 0.18 * sin(u.iTime * 17.0 + seed * 6.28318);
+            float core = 1.0 - smoothstep(0.0, 0.012 * flicker, distanceToTip);
+            float glow = 1.0 - smoothstep(0.0, 0.055 * flicker, distanceToTip);
+            fire += confidence * (float3(1.0, 0.17, 0.01) * glow * 0.7
+                + float3(1.0, 0.82, 0.22) * core * 1.6);
+        }
+    }
+
+    return float4(saturate(live + trail + fire), 1.0);
+}
