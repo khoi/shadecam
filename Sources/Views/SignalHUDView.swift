@@ -12,7 +12,7 @@ struct SignalHUDView: View {
                 header
                 vectorRow(name: "face", value: snapshot.faceRect)
                 vectorRow(name: "expression", value: snapshot.expression)
-                vectorRow(name: "audio", value: snapshot.audio)
+                audioRows(snapshot.audio)
                 handsRow(snapshot.hands)
 
                 VStack(spacing: 4) {
@@ -63,20 +63,44 @@ struct SignalHUDView: View {
             Text(name.replacingOccurrences(of: "event.", with: ""))
                 .frame(width: 72, alignment: .leading)
                 .foregroundStyle(.secondary)
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    Rectangle()
-                        .fill(.secondary.opacity(0.2))
-                    Rectangle()
-                        .fill(.cyan)
-                        .frame(width: geometry.size.width * CGFloat(min(max(value.x, 0), 1)))
-                }
-            }
-            .frame(height: 6)
+            meter(value.x)
             Text(value.y < 0 ? "never" : String(format: "%.1fs", value.y))
                 .frame(width: 42, alignment: .trailing)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    private func audioRows(_ audio: SIMD4<Float>) -> some View {
+        VStack(spacing: 4) {
+            levelRow(name: "rms", value: audio.x)
+            levelRow(name: "bass", value: audio.y)
+            levelRow(name: "mid", value: audio.z)
+            levelRow(name: "treble", value: audio.w)
+        }
+    }
+
+    private func levelRow(name: String, value: Float) -> some View {
+        HStack(spacing: 6) {
+            Text(name)
+                .frame(width: 72, alignment: .leading)
+                .foregroundStyle(.secondary)
+            meter(value)
+            Text(String(format: "%.2f", value))
+                .frame(width: 32, alignment: .trailing)
+        }
+    }
+
+    private func meter(_ value: Float) -> some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Rectangle()
+                    .fill(.secondary.opacity(0.2))
+                Rectangle()
+                    .fill(.cyan)
+                    .frame(width: geometry.size.width * CGFloat(min(max(value, 0), 1)))
+            }
+        }
+        .frame(height: 6)
     }
 
     private func handsRow(_ hands: ShaderHandUniforms) -> some View {
