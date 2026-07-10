@@ -4,6 +4,7 @@ import Foundation
 
 final class CameraCaptureService: NSObject, @unchecked Sendable {
     let frameStore = PixelBufferStore()
+    let frameDimensions = CameraFrameDimensions()
     let maskStore: PixelBufferStore
     let faceRectStore: FaceRectStore
 
@@ -98,6 +99,13 @@ extension CameraCaptureService: AVCaptureVideoDataOutputSampleBufferDelegate {
             return
         }
 
+        if capturedFrameCount == 0 {
+            let width = CVPixelBufferGetWidth(frame)
+            let height = CVPixelBufferGetHeight(frame)
+            Task { @MainActor [frameDimensions] in
+                frameDimensions.update(width: width, height: height)
+            }
+        }
         frameStore.update(frame)
         let segmentationFrame = SendablePixelBuffer(value: frame)
         Task { [segmentation, segmentationFrame] in

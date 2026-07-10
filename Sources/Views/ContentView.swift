@@ -37,7 +37,9 @@ struct ContentView: View {
                     renderControl: renderControl,
                     renderMetrics: renderMetrics
                 )
+                .aspectRatio(camera.frameDimensions.aspectRatio, contentMode: .fit)
                 .frame(minWidth: 520, minHeight: 500)
+                .background(.black)
 
                 ShaderEditorView(
                     model: shader,
