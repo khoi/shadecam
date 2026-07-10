@@ -1,0 +1,21 @@
+/*SHADE
+{"needs": ["flow"]}
+SHADE*/
+float4 mainImage(float2 fragCoord, constant Uniforms& u,
+                 texture2d<float> camera, texture2d<float> mask,
+                 texture2d<float> feedback, texture2d<float> plate,
+                 texture2d<float> signals, texture2d<float> flow,
+                 texture2d<float> depth, sampler s) {
+    float2 uv = fragCoord / u.iResolution;
+    float3 live = camera.sample(s, uv).rgb;
+    float2 displacement = flow.sample(s, uv).xy / u.iResolution;
+    float activity = smoothstep(0.00001, 0.0005, length(displacement));
+
+    if (u.iFrame == 0 || activity == 0.0) {
+        return float4(live, 1.0);
+    }
+
+    float3 previous = feedback.sample(s, uv - displacement).rgb;
+    float3 smeared = mix(live, previous, 0.9);
+    return float4(mix(live, smeared, activity), 1.0);
+}

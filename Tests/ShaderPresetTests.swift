@@ -7,13 +7,15 @@ final class ShaderPresetTests: XCTestCase {
         let bundle = Bundle(for: ShaderPresetTests.self)
         let presets = ShaderPresetLibrary.load(in: bundle)
 
-        XCTAssertEqual(presets.count, 17)
+        XCTAssertEqual(presets.count, 19)
         XCTAssertTrue(presets.contains(where: { $0.resourceName == "passthrough" }))
         XCTAssertTrue(presets.contains(where: { $0.resourceName == "hand-fire" }))
         XCTAssertTrue(presets.contains(where: { $0.resourceName == "gesture-playground" }))
         XCTAssertTrue(presets.contains(where: { $0.resourceName == "spectrum-bars" }))
         XCTAssertTrue(presets.contains(where: { $0.resourceName == "bass-aura" }))
         XCTAssertTrue(presets.contains(where: { $0.resourceName == "mood-weather" }))
+        XCTAssertTrue(presets.contains(where: { $0.resourceName == "flow-smear" }))
+        XCTAssertTrue(presets.contains(where: { $0.resourceName == "elemental-avatar" }))
         for preset in presets {
             XCTAssertTrue(try preset.source(in: bundle).contains("float4 mainImage"))
         }
@@ -80,6 +82,8 @@ final class ShaderPresetTests: XCTestCase {
             case "gesture-playground", "hand-fire": [.hands]
             case "bass-aura", "spectrum-bars": [.audio, .mask]
             case "mood-weather": [.expression, .mask]
+            case "flow-smear": [.flow]
+            case "elemental-avatar": [.audio, .body, .expression, .hands, .mask]
             default: [.mask]
             }
             XCTAssertEqual(parsed.metadata.needs, expected, preset.resourceName)

@@ -1,0 +1,148 @@
+/*SHADE
+{"needs": ["mask", "hands", "body", "audio", "expression"]}
+SHADE*/
+float elementalAvatarHash(float2 value) {
+    return fract(sin(dot(value, float2(127.1, 311.7))) * 43758.5453);
+}
+
+float elementalAvatarExpandedMask(texture2d<float> mask, sampler s, float2 uv, float2 offset) {
+    float diagonal = 0.7071;
+    float value = mask.sample(s, uv).r;
+    value = max(value, mask.sample(s, uv + float2(offset.x, 0.0)).r);
+    value = max(value, mask.sample(s, uv - float2(offset.x, 0.0)).r);
+    value = max(value, mask.sample(s, uv + float2(0.0, offset.y)).r);
+    value = max(value, mask.sample(s, uv - float2(0.0, offset.y)).r);
+    value = max(value, mask.sample(s, uv + offset * diagonal).r);
+    value = max(value, mask.sample(s, uv - offset * diagonal).r);
+    value = max(value, mask.sample(s, uv + float2(offset.x, -offset.y) * diagonal).r);
+    value = max(value, mask.sample(s, uv + float2(-offset.x, offset.y) * diagonal).r);
+    return value;
+}
+
+float elementalAvatarRain(float2 point, float time) {
+    float2 moving = point;
+    moving.x += moving.y * 0.16;
+    moving.y += time * 0.8;
+    float2 scaled = moving * float2(38.0, 15.0);
+    float2 cell = floor(scaled);
+    float2 local = fract(scaled) - 0.5;
+    float random = elementalAvatarHash(cell);
+    float streak = 1.0 - smoothstep(0.01, 0.04, abs(local.x + (random - 0.5) * 0.34));
+    float taper = 1.0 - smoothstep(0.08, 0.48, abs(local.y));
+    return streak * taper * step(0.7, random);
+}
+
+float elementalAvatarLightning(float2 point, float2 start, float2 end, float time, float seed) {
+    float2 delta = end - start;
+    float lengthSquared = max(dot(delta, delta), 0.0001);
+    float position = saturate(dot(point - start, delta) / lengthSquared);
+    float2 normal = float2(-delta.y, delta.x) * rsqrt(lengthSquared);
+    float jagged = sin(position * 83.0 + time * 14.0 + seed) * 0.008;
+    jagged += sin(position * 157.0 - time * 19.0 + seed * 2.3) * 0.004;
+    float2 center = mix(start, end, position)
+        + normal * jagged * sin(position * 3.14159265);
+    float distanceToArc = length(point - center);
+    float core = 1.0 - smoothstep(0.0015, 0.0045, distanceToArc);
+    float glow = 1.0 - smoothstep(0.003, 0.024, distanceToArc);
+    return core * 1.7 + glow * 0.38;
+}
+
+float3 elementalAvatarRotatePalette(float3 color, float angle) {
+    float3 axis = normalize(float3(1.0));
+    float cosine = cos(angle);
+    float sine = sin(angle);
+    return color * cosine + cross(axis, color) * sine
+        + axis * dot(axis, color) * (1.0 - cosine);
+}
+
+float4 mainImage(float2 fragCoord, constant Uniforms& u,
+                 texture2d<float> camera, texture2d<float> mask,
+                 texture2d<float> feedback, texture2d<float> plate,
+                 texture2d<float> signals, texture2d<float> flow,
+                 texture2d<float> depth, sampler s) {
+    float2 uv = fragCoord / u.iResolution;
+    float aspect = u.iResolution.x / u.iResolution.y;
+    float minimumDimension = min(u.iResolution.x, u.iResolution.y);
+    float3 live = camera.sample(s, uv).rgb;
+    float maskValue = mask.sample(s, uv).r;
+    float person = smoothstep(0.2, 0.8, maskValue);
+    float smile = u.iExpression.x;
+    float frown = u.iExpression.y;
+    float bass = u.iAudio.y;
+    float luminance = dot(live, float3(0.2126, 0.7152, 0.0722));
+    float3 saturated = mix(float3(luminance), live, 1.0 + smile * 0.42);
+    float3 warm = saturated * mix(float3(1.0), float3(1.14, 1.02, 0.78), smile * 0.6);
+    float3 storm = float3(luminance) * float3(0.52, 0.61, 0.72);
+    float3 mood = mix(warm, storm, frown * 0.82);
+    float3 color = mix(mood * 0.48, mood, person);
+
+    float2 head = u.iBody[0].z > 0.35 ? u.iBody[0].xy : float2(0.5, 0.34);
+    float2 rayPoint = (uv - head) * u.iResolution / minimumDimension;
+    float rayAngle = atan2(rayPoint.y, rayPoint.x);
+    float rays = pow(0.5 + 0.5 * sin(rayAngle * 18.0 - u.iTime * 0.5), 4.0);
+    float rayGlow = exp(-length(rayPoint) * 2.8) * (0.28 + rays * 0.72);
+    color += float3(1.0, 0.56, 0.12) * rayGlow * smile * (1.0 - person) * 0.8;
+
+    float2 weatherPoint = (fragCoord - u.iResolution * 0.5) / minimumDimension;
+    float rain = elementalAvatarRain(weatherPoint, u.iTime);
+    color += float3(0.42, 0.58, 0.76) * rain * frown * (0.08 + 0.22 * (1.0 - person));
+
+    float4 push = u.iEvents[3];
+    float2 pushOffset = (uv - push.zw) * float2(aspect, 1.0);
+    float pushDistance = length(pushOffset);
+    float pushRadius = max(push.y, 0.0) * 0.9;
+    float pushFront = 1.0 - smoothstep(0.0, 0.05, abs(pushDistance - pushRadius));
+    float pushAngle = atan2(pushOffset.y, pushOffset.x);
+    float pushRays = 0.58 + 0.42 * sin(pushAngle * 20.0 - push.y * 11.0);
+    color += float3(0.28, 0.08, 0.62) * push.x * pushFront * pushRays * (1.0 - person) * 1.4;
+
+    float auraRadius = 5.0 + bass * 28.0;
+    float2 auraOffset = auraRadius / u.iResolution;
+    float expandedMask = elementalAvatarExpandedMask(mask, s, uv, auraOffset);
+    float outerMask = elementalAvatarExpandedMask(mask, s, uv, auraOffset * 1.8);
+    float aura = max(smoothstep(0.08, 0.65, expandedMask) - person, 0.0);
+    aura += max(smoothstep(0.06, 0.55, outerMask) - person, 0.0) * 0.35;
+    float3 auraColor = mix(float3(0.04, 0.48, 1.0), float3(0.68, 0.12, 1.0), smile);
+    color += auraColor * aura * (0.34 + bass * 1.5);
+
+    float4 wave = u.iEvents[0];
+    float2 waveOffset = (uv - wave.zw) * float2(aspect, 1.0);
+    float waveRadius = max(wave.y, 0.0) * 0.38;
+    float waveDistance = length(waveOffset);
+    float waveRing = 1.0 - smoothstep(0.0, 0.014, abs(waveDistance - waveRadius));
+    float waveGlow = 1.0 - smoothstep(0.0, 0.055, abs(waveDistance - waveRadius));
+    color += float3(0.08, 0.72, 1.0) * wave.x * (waveRing + waveGlow * 0.32);
+
+    float4 leftWrist = u.iBody[10].z > 0.35 ? u.iBody[10] : u.iHands[0][0];
+    float4 rightWrist = u.iBody[11].z > 0.35 ? u.iBody[11] : u.iHands[1][0];
+    float4 leftShoulder = u.iBody[6];
+    float4 rightShoulder = u.iBody[7];
+    float confidence = smoothstep(
+        0.3,
+        0.7,
+        min(min(leftWrist.z, rightWrist.z), min(leftShoulder.z, rightShoulder.z))
+    );
+    float raised = smoothstep(0.0, 0.08, leftShoulder.y - leftWrist.y)
+        * smoothstep(0.0, 0.08, rightShoulder.y - rightWrist.y);
+    float2 lightningPoint = uv * float2(aspect, 1.0);
+    float2 lightningStart = leftWrist.xy * float2(aspect, 1.0);
+    float2 lightningEnd = rightWrist.xy * float2(aspect, 1.0);
+    float wristDistance = length(lightningEnd - lightningStart);
+    float lightningEnergy = confidence * raised * min(2.2, 0.5 / max(wristDistance, 0.12));
+    float lightning = 0.0;
+    for (uint arc = 0; arc < 2; ++arc) {
+        lightning += elementalAvatarLightning(
+            lightningPoint,
+            lightningStart,
+            lightningEnd,
+            u.iTime + float(arc) * 0.13,
+            float(arc) * 4.7
+        );
+    }
+    color += lightningEnergy * lightning * float3(0.46, 0.78, 1.0);
+
+    float clap = u.iEvents[1].x;
+    color = elementalAvatarRotatePalette(color, clap * 2.0944);
+    color = mix(color, float3(1.0), clap * 0.72);
+    return float4(saturate(color), 1.0);
+}
