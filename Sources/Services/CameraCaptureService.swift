@@ -6,6 +6,7 @@ final class CameraCaptureService: NSObject, @unchecked Sendable {
     let frameStore = PixelBufferStore()
     let frameDimensions = CameraFrameDimensions()
     let maskStore: PixelBufferStore
+    let flowStore: PixelBufferStore
 
     private let captureQueue = DispatchQueue(label: "app.supabit.shadecam.capture")
     private let session = AVCaptureSession()
@@ -14,21 +15,26 @@ final class CameraCaptureService: NSObject, @unchecked Sendable {
     private let faceExpression: FaceExpressionService
     private let handPose: HandPoseService
     private let bodyPose: BodyPoseService
+    private let opticalFlow: OpticalFlowService
     private var capturedFrameCount = 0
     private var configured = false
     private var segmentationEnabled = false
     private var expressionEnabled = false
     private var handsEnabled = false
     private var bodyEnabled = false
+    private var flowEnabled = false
 
     init(signalBus: SignalBus) {
         let maskStore = PixelBufferStore()
+        let flowStore = PixelBufferStore()
         self.maskStore = maskStore
+        self.flowStore = flowStore
         segmentation = PersonSegmentationService(maskStore: maskStore)
         faceDetection = FaceDetectionService(signalBus: signalBus)
         faceExpression = FaceExpressionService(signalBus: signalBus)
         handPose = HandPoseService(signalBus: signalBus)
         bodyPose = BodyPoseService(signalBus: signalBus)
+        opticalFlow = OpticalFlowService(flowStore: flowStore)
         super.init()
     }
 
@@ -75,6 +81,7 @@ final class CameraCaptureService: NSObject, @unchecked Sendable {
         let expressionEnabled = needs.contains(.expression)
         let handsEnabled = needs.contains(.hands)
         let bodyEnabled = needs.contains(.body)
+        let flowEnabled = OpticalFlowService.isEnabled(for: needs)
         captureQueue.async { [self] in
             self.segmentationEnabled = segmentationEnabled
             if !segmentationEnabled {
@@ -95,9 +102,15 @@ final class CameraCaptureService: NSObject, @unchecked Sendable {
                     await bodyPose.clear(at: ProcessInfo.processInfo.systemUptime)
                 }
             }
+            if self.flowEnabled, !flowEnabled {
+                Task { [opticalFlow] in
+                    await opticalFlow.clear()
+                }
+            }
             self.expressionEnabled = expressionEnabled
             self.handsEnabled = handsEnabled
             self.bodyEnabled = bodyEnabled
+            self.flowEnabled = flowEnabled
         }
     }
 
@@ -171,6 +184,11 @@ extension CameraCaptureService: AVCaptureVideoDataOutputSampleBufferDelegate {
         if bodyEnabled {
             Task { [bodyPose, detectionFrame] in
                 await bodyPose.process(detectionFrame, at: timestamp)
+            }
+        }
+        if flowEnabled {
+            Task { [opticalFlow, detectionFrame] in
+                await opticalFlow.process(detectionFrame)
             }
         }
         capturedFrameCount += 1

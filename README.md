@@ -4,6 +4,8 @@
 
 Preset shaders implement `mainImage` with the camera, mask, feedback, plate, signals, flow, and depth textures in that order. `signals` is a 256×4 `r16Float` texture: row 0 is the audio spectrum, row 1 is the audio waveform, and rows 2–3 are reserved. `flow` and `depth` are 1×1 black placeholders until their producers are active.
 
+Flow texels contain two-component pixel displacement vectors in camera-pixel units. Divide them by `iResolution` before applying them as UV offsets.
+
 `iExpression` contains smoothed smile, frown, surprise, and mouth-open scores from 0–1. `iAudio` contains smoothed RMS, bass, mid, and treble levels from 0–1. Both are zero until their producers are active.
 
 Each `iEvents` element contains envelope, seconds since trigger, and normalized trigger x/y. A never-triggered event has a time of -1. Slots are wave, clap, pinch, push, smile, two reserved slots, and debug.

@@ -49,6 +49,7 @@ struct ContentView: View {
                     CameraPreviewView(
                         frameStore: camera.frameStore,
                         maskStore: camera.maskStore,
+                        flowStore: camera.flowStore,
                         signalTextureStore: audio.signalTextureStore,
                         signalBus: signalBus,
                         pipelineStore: shader.pipelineStore,

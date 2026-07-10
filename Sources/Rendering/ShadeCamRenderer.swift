@@ -7,6 +7,7 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
 
     private let frameStore: PixelBufferStore
     private let maskStore: PixelBufferStore
+    private let flowStore: PixelBufferStore
     private let signalTextureStore: SignalTextureStore
     private let signalBus: SignalBus
     private let pipelineStore: ShaderPipelineStore
@@ -18,7 +19,7 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
     private let textureCache: CVMetalTextureCache
     private let emptyMaskTexture: MTLTexture
     private let signalsTexture: MTLTexture
-    private let flowTexture: MTLTexture
+    private let emptyFlowTexture: MTLTexture
     private let depthTexture: MTLTexture
     private let startTime = ProcessInfo.processInfo.systemUptime
     private var previousFrameTime: TimeInterval?
@@ -34,6 +35,7 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
     init(
         frameStore: PixelBufferStore,
         maskStore: PixelBufferStore,
+        flowStore: PixelBufferStore,
         signalTextureStore: SignalTextureStore,
         signalBus: SignalBus,
         pipelineStore: ShaderPipelineStore,
@@ -53,6 +55,7 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         self.device = device
         self.frameStore = frameStore
         self.maskStore = maskStore
+        self.flowStore = flowStore
         self.signalTextureStore = signalTextureStore
         self.signalBus = signalBus
         self.pipelineStore = pipelineStore
@@ -82,7 +85,7 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
 
         emptyMaskTexture = Self.makeZeroTexture(device: device, width: 1, height: 1)
         signalsTexture = Self.makeZeroTexture(device: device, width: 256, height: 4)
-        flowTexture = Self.makeZeroTexture(device: device, width: 1, height: 1)
+        emptyFlowTexture = Self.makeZeroTexture(device: device, width: 1, height: 1)
         depthTexture = Self.makeZeroTexture(device: device, width: 1, height: 1)
 
         var textureCache: CVMetalTextureCache?
@@ -118,6 +121,11 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
             makeTexture(from: $0, plane: 0, format: .r16Float)
         }
         let sourceMask = maskReference.flatMap(CVMetalTextureGetTexture) ?? emptyMaskTexture
+        let flowReference = flowStore.current().flatMap { pixelBuffer in
+            OpticalFlowPixelFormat(cvPixelFormat: CVPixelBufferGetPixelFormatType(pixelBuffer))
+                .flatMap { makeTexture(from: pixelBuffer, plane: 0, format: $0.metalPixelFormat) }
+        }
+        let sourceFlow = flowReference.flatMap(CVMetalTextureGetTexture) ?? emptyFlowTexture
         let plate = makePlateTexture(width: cameraWidth, height: cameraHeight)
         let drawableWidth = Int(view.drawableSize.width)
         let drawableHeight = Int(view.drawableSize.height)
@@ -161,7 +169,7 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         shaderEncoder.setFragmentTexture(feedback[feedbackReadIndex], index: 2)
         shaderEncoder.setFragmentTexture(plate, index: 3)
         shaderEncoder.setFragmentTexture(signalsTexture, index: 4)
-        shaderEncoder.setFragmentTexture(flowTexture, index: 5)
+        shaderEncoder.setFragmentTexture(sourceFlow, index: 5)
         shaderEncoder.setFragmentTexture(depthTexture, index: 6)
         shaderEncoder.setFragmentSamplerState(sampler, index: 0)
         shaderEncoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
@@ -183,7 +191,9 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         )
         blitEncoder.endEncoding()
 
-        let lease = MetalTextureLease(textures: [luma, chroma] + [maskReference].compactMap { $0 })
+        let lease = MetalTextureLease(
+            textures: [luma, chroma] + [maskReference, flowReference].compactMap { $0 }
+        )
         commandBuffer.addCompletedHandler { [pipelineStore, renderMetrics] commandBuffer in
             lease.release()
             if let error = commandBuffer.error {
