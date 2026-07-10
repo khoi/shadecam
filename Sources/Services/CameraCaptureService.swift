@@ -11,10 +11,12 @@ final class CameraCaptureService: NSObject, @unchecked Sendable {
     private let session = AVCaptureSession()
     private let segmentation: PersonSegmentationService
     private let faceDetection: FaceDetectionService
+    private let faceExpression: FaceExpressionService
     private let handPose: HandPoseService
     private var capturedFrameCount = 0
     private var configured = false
     private var segmentationEnabled = false
+    private var expressionEnabled = false
     private var handsEnabled = false
 
     init(signalBus: SignalBus) {
@@ -22,6 +24,7 @@ final class CameraCaptureService: NSObject, @unchecked Sendable {
         self.maskStore = maskStore
         segmentation = PersonSegmentationService(maskStore: maskStore)
         faceDetection = FaceDetectionService(signalBus: signalBus)
+        faceExpression = FaceExpressionService(signalBus: signalBus)
         handPose = HandPoseService(signalBus: signalBus)
         super.init()
     }
@@ -60,6 +63,7 @@ final class CameraCaptureService: NSObject, @unchecked Sendable {
 
     func setNeeds(_ needs: Set<ShaderNeed>) {
         let segmentationEnabled = needs.contains(.mask)
+        let expressionEnabled = needs.contains(.expression)
         let handsEnabled = needs.contains(.hands)
         captureQueue.async { [self] in
             self.segmentationEnabled = segmentationEnabled
@@ -71,6 +75,12 @@ final class CameraCaptureService: NSObject, @unchecked Sendable {
                     await handPose.clear(at: ProcessInfo.processInfo.systemUptime)
                 }
             }
+            if self.expressionEnabled, !expressionEnabled {
+                Task { [faceExpression] in
+                    await faceExpression.clear(at: ProcessInfo.processInfo.systemUptime)
+                }
+            }
+            self.expressionEnabled = expressionEnabled
             self.handsEnabled = handsEnabled
         }
     }
@@ -135,6 +145,11 @@ extension CameraCaptureService: AVCaptureVideoDataOutputSampleBufferDelegate {
         if handsEnabled {
             Task { [handPose, detectionFrame] in
                 await handPose.process(detectionFrame, at: timestamp)
+            }
+        }
+        if expressionEnabled {
+            Task { [faceExpression, detectionFrame] in
+                await faceExpression.process(detectionFrame, at: timestamp)
             }
         }
         capturedFrameCount += 1

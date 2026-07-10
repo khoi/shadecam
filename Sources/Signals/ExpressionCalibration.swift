@@ -56,4 +56,9 @@ struct ExpressionScoreTracker: Sendable {
         scores = ExpressionScorer(baseline: baseline).scores(for: latestGeometry)
         return baseline
     }
+
+    mutating func clear() {
+        latestGeometry = nil
+        scores = ExpressionScores(smile: 0, frown: 0, surprise: 0, mouthOpen: 0)
+    }
 }
