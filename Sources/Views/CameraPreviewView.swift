@@ -5,6 +5,7 @@ struct CameraPreviewView: NSViewRepresentable {
     let frameStore: PixelBufferStore
     let maskStore: PixelBufferStore
     let flowStore: PixelBufferStore
+    let depthStore: PixelBufferStore
     let signalTextureStore: SignalTextureStore
     let signalBus: SignalBus
     let pipelineStore: ShaderPipelineStore
@@ -16,6 +17,7 @@ struct CameraPreviewView: NSViewRepresentable {
             frameStore: frameStore,
             maskStore: maskStore,
             flowStore: flowStore,
+            depthStore: depthStore,
             signalTextureStore: signalTextureStore,
             signalBus: signalBus,
             pipelineStore: pipelineStore,
@@ -50,6 +52,7 @@ struct CameraPreviewView: NSViewRepresentable {
             frameStore: PixelBufferStore,
             maskStore: PixelBufferStore,
             flowStore: PixelBufferStore,
+            depthStore: PixelBufferStore,
             signalTextureStore: SignalTextureStore,
             signalBus: SignalBus,
             pipelineStore: ShaderPipelineStore,
@@ -60,6 +63,7 @@ struct CameraPreviewView: NSViewRepresentable {
                 frameStore: frameStore,
                 maskStore: maskStore,
                 flowStore: flowStore,
+                depthStore: depthStore,
                 signalTextureStore: signalTextureStore,
                 signalBus: signalBus,
                 pipelineStore: pipelineStore,

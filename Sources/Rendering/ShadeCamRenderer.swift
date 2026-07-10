@@ -8,6 +8,7 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
     private let frameStore: PixelBufferStore
     private let maskStore: PixelBufferStore
     private let flowStore: PixelBufferStore
+    private let depthStore: PixelBufferStore
     private let signalTextureStore: SignalTextureStore
     private let signalBus: SignalBus
     private let pipelineStore: ShaderPipelineStore
@@ -20,7 +21,7 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
     private let emptyMaskTexture: MTLTexture
     private let signalsTexture: MTLTexture
     private let emptyFlowTexture: MTLTexture
-    private let depthTexture: MTLTexture
+    private let emptyDepthTexture: MTLTexture
     private let startTime = ProcessInfo.processInfo.systemUptime
     private var previousFrameTime: TimeInterval?
     private var frameIndex: UInt32 = 0
@@ -36,6 +37,7 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         frameStore: PixelBufferStore,
         maskStore: PixelBufferStore,
         flowStore: PixelBufferStore,
+        depthStore: PixelBufferStore,
         signalTextureStore: SignalTextureStore,
         signalBus: SignalBus,
         pipelineStore: ShaderPipelineStore,
@@ -56,6 +58,7 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         self.frameStore = frameStore
         self.maskStore = maskStore
         self.flowStore = flowStore
+        self.depthStore = depthStore
         self.signalTextureStore = signalTextureStore
         self.signalBus = signalBus
         self.pipelineStore = pipelineStore
@@ -86,7 +89,7 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         emptyMaskTexture = Self.makeZeroTexture(device: device, width: 1, height: 1)
         signalsTexture = Self.makeZeroTexture(device: device, width: 256, height: 4)
         emptyFlowTexture = Self.makeZeroTexture(device: device, width: 1, height: 1)
-        depthTexture = Self.makeZeroTexture(device: device, width: 1, height: 1)
+        emptyDepthTexture = Self.makeZeroTexture(device: device, width: 1, height: 1)
 
         var textureCache: CVMetalTextureCache?
         guard CVMetalTextureCacheCreate(nil, nil, device, nil, &textureCache) == kCVReturnSuccess,
@@ -126,6 +129,13 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
                 .flatMap { makeTexture(from: pixelBuffer, plane: 0, format: $0.metalPixelFormat) }
         }
         let sourceFlow = flowReference.flatMap(CVMetalTextureGetTexture) ?? emptyFlowTexture
+        let depthReference: CVMetalTexture? = depthStore.current().flatMap { pixelBuffer in
+            guard CVPixelBufferGetPixelFormatType(pixelBuffer) == kCVPixelFormatType_OneComponent16Half else {
+                return nil
+            }
+            return makeTexture(from: pixelBuffer, plane: 0, format: .r16Float)
+        }
+        let sourceDepth = depthReference.flatMap(CVMetalTextureGetTexture) ?? emptyDepthTexture
         let plate = makePlateTexture(width: cameraWidth, height: cameraHeight)
         let drawableWidth = Int(view.drawableSize.width)
         let drawableHeight = Int(view.drawableSize.height)
@@ -170,7 +180,7 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         shaderEncoder.setFragmentTexture(plate, index: 3)
         shaderEncoder.setFragmentTexture(signalsTexture, index: 4)
         shaderEncoder.setFragmentTexture(sourceFlow, index: 5)
-        shaderEncoder.setFragmentTexture(depthTexture, index: 6)
+        shaderEncoder.setFragmentTexture(sourceDepth, index: 6)
         shaderEncoder.setFragmentSamplerState(sampler, index: 0)
         shaderEncoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
         shaderEncoder.endEncoding()
@@ -192,7 +202,7 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         blitEncoder.endEncoding()
 
         let lease = MetalTextureLease(
-            textures: [luma, chroma] + [maskReference, flowReference].compactMap { $0 }
+            textures: [luma, chroma] + [maskReference, flowReference, depthReference].compactMap { $0 }
         )
         commandBuffer.addCompletedHandler { [pipelineStore, renderMetrics] commandBuffer in
             lease.release()

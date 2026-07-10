@@ -7,6 +7,7 @@ final class CameraCaptureService: NSObject, @unchecked Sendable {
     let frameDimensions = CameraFrameDimensions()
     let maskStore: PixelBufferStore
     let flowStore: PixelBufferStore
+    let depthStore: PixelBufferStore
 
     private let captureQueue = DispatchQueue(label: "app.supabit.shadecam.capture")
     private let session = AVCaptureSession()
@@ -16,6 +17,7 @@ final class CameraCaptureService: NSObject, @unchecked Sendable {
     private let handPose: HandPoseService
     private let bodyPose: BodyPoseService
     private let opticalFlow: OpticalFlowService
+    private let depth: DepthService
     private var capturedFrameCount = 0
     private var configured = false
     private var segmentationEnabled = false
@@ -23,18 +25,22 @@ final class CameraCaptureService: NSObject, @unchecked Sendable {
     private var handsEnabled = false
     private var bodyEnabled = false
     private var flowEnabled = false
+    private var depthEnabled = false
 
     init(signalBus: SignalBus) {
         let maskStore = PixelBufferStore()
         let flowStore = PixelBufferStore()
+        let depthStore = PixelBufferStore()
         self.maskStore = maskStore
         self.flowStore = flowStore
+        self.depthStore = depthStore
         segmentation = PersonSegmentationService(maskStore: maskStore)
         faceDetection = FaceDetectionService(signalBus: signalBus)
         faceExpression = FaceExpressionService(signalBus: signalBus)
         handPose = HandPoseService(signalBus: signalBus)
         bodyPose = BodyPoseService(signalBus: signalBus)
         opticalFlow = OpticalFlowService(flowStore: flowStore)
+        depth = DepthService(depthStore: depthStore)
         super.init()
     }
 
@@ -82,6 +88,7 @@ final class CameraCaptureService: NSObject, @unchecked Sendable {
         let handsEnabled = needs.contains(.hands)
         let bodyEnabled = needs.contains(.body)
         let flowEnabled = OpticalFlowService.isEnabled(for: needs)
+        let depthEnabled = DepthService.isEnabled(for: needs)
         captureQueue.async { [self] in
             self.segmentationEnabled = segmentationEnabled
             if !segmentationEnabled {
@@ -107,10 +114,16 @@ final class CameraCaptureService: NSObject, @unchecked Sendable {
                     await opticalFlow.clear()
                 }
             }
+            if self.depthEnabled, !depthEnabled {
+                Task { [depth] in
+                    await depth.clear()
+                }
+            }
             self.expressionEnabled = expressionEnabled
             self.handsEnabled = handsEnabled
             self.bodyEnabled = bodyEnabled
             self.flowEnabled = flowEnabled
+            self.depthEnabled = depthEnabled
         }
     }
 
@@ -189,6 +202,11 @@ extension CameraCaptureService: AVCaptureVideoDataOutputSampleBufferDelegate {
         if flowEnabled {
             Task { [opticalFlow, detectionFrame] in
                 await opticalFlow.process(detectionFrame)
+            }
+        }
+        if depthEnabled {
+            Task { [depth, detectionFrame] in
+                await depth.process(detectionFrame)
             }
         }
         capturedFrameCount += 1

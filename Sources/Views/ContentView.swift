@@ -50,6 +50,7 @@ struct ContentView: View {
                         frameStore: camera.frameStore,
                         maskStore: camera.maskStore,
                         flowStore: camera.flowStore,
+                        depthStore: camera.depthStore,
                         signalTextureStore: audio.signalTextureStore,
                         signalBus: signalBus,
                         pipelineStore: shader.pipelineStore,

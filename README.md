@@ -2,9 +2,19 @@
 
 ## Shader ABI v3
 
-Preset shaders implement `mainImage` with the camera, mask, feedback, plate, signals, flow, and depth textures in that order. `signals` is a 256×4 `r16Float` texture: row 0 is the audio spectrum, row 1 is the audio waveform, and rows 2–3 are reserved. `flow` and `depth` are 1×1 black placeholders until their producers are active.
+Preset shaders implement `mainImage` with these textures:
 
-Flow texels contain two-component pixel displacement vectors in camera-pixel units. Divide them by `iResolution` before applying them as UV offsets.
+| Index | Name | Contents |
+| ---: | --- | --- |
+| 0 | `camera` | Live camera frame |
+| 1 | `mask` | Person segmentation mask |
+| 2 | `feedback` | Previous rendered frame |
+| 3 | `plate` | Captured background frame |
+| 4 | `signals` | 256×4 `r16Float`; audio spectrum, waveform, then two reserved rows |
+| 5 | `flow` | Two-component camera-pixel displacement vectors |
+| 6 | `depth` | Normalized relative inverse depth; 1 ≈ nearest, 0 ≈ farthest |
+
+`flow` and `depth` are 1×1 black placeholders until their producers are active. Shaders can guard depth access with `depth.get_width() <= 1`. Divide flow texels by `iResolution` before applying them as UV offsets.
 
 `iExpression` contains smoothed smile, frown, surprise, and mouth-open scores from 0–1. `iAudio` contains smoothed RMS, bass, mid, and treble levels from 0–1. Both are zero until their producers are active.
 
