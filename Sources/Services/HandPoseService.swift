@@ -6,6 +6,7 @@ actor HandPoseService {
     private let signalBus: SignalBus
     private var request: DetectHumanHandPoseRequest
     private var isProcessing = false
+    private var gestureRecognizers = [HandGestureRecognizer(), HandGestureRecognizer()]
 
     init(signalBus: SignalBus) {
         self.signalBus = signalBus
@@ -29,11 +30,16 @@ actor HandPoseService {
 
         let hands = assignedHands(from: observations)
         for slot in hands.indices {
-            write(pose(from: hands[slot]), to: slot, at: timestamp)
+            let pose = pose(from: hands[slot])
+            write(pose, to: slot, at: timestamp)
+            for gesture in gestureRecognizers[slot].update(pose, at: timestamp) {
+                signalBus.trigger(gesture.signalName, at: timestamp, position: gesture.position)
+            }
         }
     }
 
     func clear(at timestamp: TimeInterval) {
+        gestureRecognizers = [HandGestureRecognizer(), HandGestureRecognizer()]
         for slot in 0..<2 {
             write(HandPose(), to: slot, at: timestamp)
         }
