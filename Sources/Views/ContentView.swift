@@ -104,6 +104,15 @@ struct ContentView: View {
             }
             ToolbarItem {
                 Button {
+                    camera.calibrateExpressionNeutral()
+                } label: {
+                    Label("Calibrate Neutral Expression", systemImage: "face.smiling")
+                }
+                .disabled(!shader.needs.contains(.expression))
+                .help("Capture Neutral Expression")
+            }
+            ToolbarItem {
+                Button {
                     renderControl.requestPlateCapture()
                 } label: {
                     Label("Capture Background", systemImage: "camera.aperture")

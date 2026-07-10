@@ -61,6 +61,12 @@ final class CameraCaptureService: NSObject, @unchecked Sendable {
         }
     }
 
+    func calibrateExpressionNeutral() {
+        Task { [faceExpression] in
+            _ = await faceExpression.calibrateNeutral(at: ProcessInfo.processInfo.systemUptime)
+        }
+    }
+
     func setNeeds(_ needs: Set<ShaderNeed>) {
         let segmentationEnabled = needs.contains(.mask)
         let expressionEnabled = needs.contains(.expression)

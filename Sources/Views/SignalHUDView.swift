@@ -11,7 +11,7 @@ struct SignalHUDView: View {
             VStack(alignment: .leading, spacing: 8) {
                 header
                 vectorRow(name: "face", value: snapshot.faceRect)
-                vectorRow(name: "expression", value: snapshot.expression)
+                expressionRows(snapshot.expression)
                 audioRows(snapshot.audio)
                 handsRow(snapshot.hands)
 
@@ -76,6 +76,15 @@ struct SignalHUDView: View {
             levelRow(name: "bass", value: audio.y)
             levelRow(name: "mid", value: audio.z)
             levelRow(name: "treble", value: audio.w)
+        }
+    }
+
+    private func expressionRows(_ expression: SIMD4<Float>) -> some View {
+        VStack(spacing: 4) {
+            levelRow(name: "smile", value: expression.x)
+            levelRow(name: "frown", value: expression.y)
+            levelRow(name: "surprise", value: expression.z)
+            levelRow(name: "mouthOpen", value: expression.w)
         }
     }
 

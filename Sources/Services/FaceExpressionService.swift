@@ -7,6 +7,7 @@ actor FaceExpressionService {
     private let calibrationStore: ExpressionCalibrationStore
     private let request = DetectFaceLandmarksRequest()
     private var tracker: ExpressionScoreTracker
+    private var smileTrigger = SmileTriggerMapper()
     private var isProcessing = false
 
     init(signalBus: SignalBus) {
@@ -57,10 +58,22 @@ actor FaceExpressionService {
             pitchDegrees: primary.pitch.converted(to: .degrees).value
         )
         signalBus.write(scores.vector, to: SignalNames.expression, at: timestamp)
+        if smileTrigger.shouldTrigger(smile: scores.smile, at: timestamp) {
+            let boundingBox = primary.boundingBox.cgRect
+            signalBus.trigger(
+                SignalNames.smileEvent,
+                at: timestamp,
+                position: SIMD2(
+                    Float(boundingBox.midX),
+                    1 - Float(boundingBox.midY)
+                )
+            )
+        }
     }
 
     func clear(at timestamp: TimeInterval) {
         tracker.clear()
+        smileTrigger = SmileTriggerMapper()
         signalBus.write(.zero, to: SignalNames.expression, at: timestamp)
     }
 
@@ -70,6 +83,7 @@ actor FaceExpressionService {
         }
         calibrationStore.save(baseline)
         signalBus.write(tracker.scores.vector, to: SignalNames.expression, at: timestamp)
+        _ = smileTrigger.shouldTrigger(smile: tracker.scores.smile, at: timestamp)
         return true
     }
 
