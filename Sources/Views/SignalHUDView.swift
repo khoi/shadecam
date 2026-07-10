@@ -13,6 +13,7 @@ struct SignalHUDView: View {
                 vectorRow(name: "face", value: snapshot.faceRect)
                 vectorRow(name: "expression", value: snapshot.expression)
                 vectorRow(name: "audio", value: snapshot.audio)
+                handsRow(snapshot.hands)
 
                 VStack(spacing: 4) {
                     ForEach(Array(SignalNames.events.enumerated()), id: \.offset) { slot, name in
@@ -78,10 +79,32 @@ struct SignalHUDView: View {
         }
     }
 
+    private func handsRow(_ hands: ShaderHandUniforms) -> some View {
+        let left = confidence(meanConfidence(of: 0, in: hands))
+        let right = confidence(meanConfidence(of: 1, in: hands))
+        return HStack(spacing: 6) {
+            Text("hands")
+                .frame(width: 72, alignment: .leading)
+                .foregroundStyle(.secondary)
+            Text("L \(left)  R \(right)")
+                .lineLimit(1)
+        }
+    }
+
+    private func meanConfidence(of hand: Int, in hands: ShaderHandUniforms) -> Float {
+        (0..<21).reduce(0) { $0 + hands[hand, $1].z } / 21
+    }
+
+    private func confidence(_ value: Float) -> String {
+        value > 0.01 ? String(format: "%.2f", value) : "—"
+    }
+
     private func additionalSignalNames(in snapshot: SignalSnapshot) -> [String] {
         let standardNames = Set(
             [SignalNames.faceRect, SignalNames.expression, SignalNames.audio] + SignalNames.events
         )
-        return snapshot.values.keys.filter { !standardNames.contains($0) }.sorted()
+        return snapshot.values.keys.filter {
+            !standardNames.contains($0) && !$0.hasPrefix("hand.")
+        }.sorted()
     }
 }
