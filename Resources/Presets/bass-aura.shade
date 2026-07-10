@@ -1,0 +1,41 @@
+/*SHADE
+{"needs": ["audio", "mask"]}
+SHADE*/
+float bassAuraExpandedMask(texture2d<float> mask, sampler s, float2 uv, float2 offset) {
+    float diagonal = 0.7071;
+    float value = mask.sample(s, uv).r;
+    value = max(value, mask.sample(s, uv + float2(offset.x, 0.0)).r);
+    value = max(value, mask.sample(s, uv - float2(offset.x, 0.0)).r);
+    value = max(value, mask.sample(s, uv + float2(0.0, offset.y)).r);
+    value = max(value, mask.sample(s, uv - float2(0.0, offset.y)).r);
+    value = max(value, mask.sample(s, uv + offset * diagonal).r);
+    value = max(value, mask.sample(s, uv - offset * diagonal).r);
+    value = max(value, mask.sample(s, uv + float2(offset.x, -offset.y) * diagonal).r);
+    value = max(value, mask.sample(s, uv + float2(-offset.x, offset.y) * diagonal).r);
+    return value;
+}
+
+float4 mainImage(float2 fragCoord, constant Uniforms& u,
+                 texture2d<float> camera, texture2d<float> mask,
+                 texture2d<float> feedback, texture2d<float> plate,
+                 texture2d<float> signals, texture2d<float> flow,
+                 texture2d<float> depth, sampler s) {
+    float2 uv = fragCoord / u.iResolution;
+    float bass = u.iAudio.y;
+    float clap = u.iEvents[1].x;
+    float radius = min(u.iResolution.x, u.iResolution.y) * (0.012 + bass * 0.045 + clap * 0.008);
+    float2 offset = radius / u.iResolution;
+    float maskValue = mask.sample(s, uv).r;
+    float person = smoothstep(0.2, 0.8, maskValue);
+    float innerMask = bassAuraExpandedMask(mask, s, uv, offset * 0.52);
+    float outerMask = bassAuraExpandedMask(mask, s, uv, offset);
+    float innerAura = max(smoothstep(0.12, 0.66, innerMask) - person, 0.0);
+    float outerAura = max(smoothstep(0.08, 0.58, outerMask) - person, 0.0);
+    float aura = saturate(innerAura * 0.75 + outerAura * 0.38);
+    float pulse = 0.32 + bass * 1.25 + clap * 0.28;
+    float hue = 0.5 + 0.5 * sin(u.iTime * 0.45);
+    float3 auraColor = mix(float3(0.16, 0.42, 1.0), float3(0.72, 0.16, 1.0), hue);
+    float3 cameraColor = camera.sample(s, uv).rgb;
+    float3 background = cameraColor * 0.52 + auraColor * aura * pulse;
+    return float4(saturate(mix(background, cameraColor, person)), 1.0);
+}
