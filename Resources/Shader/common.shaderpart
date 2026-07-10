@@ -1,0 +1,70 @@
+float shadeHash(float2 value) {
+    float3 state = fract(float3(value.xyx) * float3(0.1031, 0.1030, 0.0973));
+    state += dot(state, state.yzx + 33.33);
+    return fract((state.x + state.y) * state.z);
+}
+
+float shadeNoise(float2 point) {
+    float2 cell = floor(point);
+    float2 local = fract(point);
+    float2 blend = local * local * (3.0 - 2.0 * local);
+    float lower = mix(shadeHash(cell), shadeHash(cell + float2(1.0, 0.0)), blend.x);
+    float upper = mix(shadeHash(cell + float2(0.0, 1.0)), shadeHash(cell + 1.0), blend.x);
+    return mix(lower, upper, blend.y);
+}
+
+float shadeFbm(float2 point) {
+    float value = 0.0;
+    float amplitude = 0.5;
+    for (uint octave = 0; octave < 5; ++octave) {
+        value += shadeNoise(point) * amplitude;
+        point = point * 2.03 + float2(17.1, 9.2);
+        amplitude *= 0.5;
+    }
+    return value;
+}
+
+float shadeLuminance(float3 color) {
+    return dot(color, float3(0.2126, 0.7152, 0.0722));
+}
+
+float3 shadeSpectrum(float hue) {
+    float3 phase = fract(hue + float3(0.0, 0.6667, 0.3333));
+    return saturate(abs(phase * 6.0 - 3.0) - 1.0);
+}
+
+float3 shadeHueRotate(float3 color, float angle) {
+    float3 axis = normalize(float3(1.0));
+    float cosine = cos(angle);
+    float sine = sin(angle);
+    return color * cosine + cross(axis, color) * sine
+        + axis * dot(axis, color) * (1.0 - cosine);
+}
+
+float shadeMaskDilate(texture2d<float> mask, sampler s, float2 uv, float2 offset) {
+    float diagonal = 0.70710678;
+    float value = mask.sample(s, uv).r;
+    value = max(value, mask.sample(s, uv + float2(offset.x, 0.0)).r);
+    value = max(value, mask.sample(s, uv - float2(offset.x, 0.0)).r);
+    value = max(value, mask.sample(s, uv + float2(0.0, offset.y)).r);
+    value = max(value, mask.sample(s, uv - float2(0.0, offset.y)).r);
+    value = max(value, mask.sample(s, uv + offset * diagonal).r);
+    value = max(value, mask.sample(s, uv - offset * diagonal).r);
+    value = max(value, mask.sample(s, uv + float2(offset.x, -offset.y) * diagonal).r);
+    value = max(value, mask.sample(s, uv + float2(-offset.x, offset.y) * diagonal).r);
+    return value;
+}
+
+float shadeMaskEdge(texture2d<float> mask, sampler s, float2 uv, float2 offset) {
+    float2 gradient = float2(
+        mask.sample(s, uv + float2(offset.x, 0.0)).r - mask.sample(s, uv - float2(offset.x, 0.0)).r,
+        mask.sample(s, uv + float2(0.0, offset.y)).r - mask.sample(s, uv - float2(0.0, offset.y)).r
+    );
+    return length(gradient);
+}
+
+float shadeSegmentDistance(float2 point, float2 start, float2 end) {
+    float2 segment = end - start;
+    float amount = saturate(dot(point - start, segment) / max(dot(segment, segment), 0.000001));
+    return length(point - mix(start, end, amount));
+}

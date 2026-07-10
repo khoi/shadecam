@@ -1,0 +1,63 @@
+/*SHADE
+{"needs": ["expression", "mask"], "instructions": "Click to move the mirror center. Smile, look surprised, or open your mouth to reshape it."}
+SHADE*/
+float4 mainImage(float2 fragCoord, constant Uniforms& u,
+                 texture2d<float> camera, texture2d<float> mask,
+                 texture2d<float> feedback, texture2d<float> plate,
+                 texture2d<float> signals, texture2d<float> flow,
+                 texture2d<float> depth, sampler s) {
+    float2 uv = fragCoord / u.iResolution;
+    float aspect = u.iResolution.x / u.iResolution.y;
+    float2 faceCenter = u.iFaceRect.z > 0.0
+        ? u.iFaceRect.xy + u.iFaceRect.zw * 0.5
+        : float2(0.5, 0.42);
+    float mouseActive = step(1.0, u.iMouse.z + u.iMouse.w);
+    float2 mouseCenter = u.iMouse.zw / u.iResolution;
+    float2 center = mix(faceCenter, mouseCenter, mouseActive);
+    float2 point = (uv - center) * float2(aspect, 1.0);
+    float radius = length(point);
+    float surprise = u.iExpression.z;
+    float mouthOpen = u.iExpression.w;
+    float smile = u.iExpression.x;
+    float segments = 6.0 + floor(surprise * 5.0) * 2.0;
+    float wedge = 6.2831853 / segments;
+    float rawAngle = atan2(point.y, point.x) + u.iTime * (0.045 + mouthOpen * 0.18);
+    float sector = floor((rawAngle + 3.14159265) / wedge);
+    float angle = abs(fract(rawAngle / wedge + 0.5) * wedge - wedge * 0.5);
+    float breathing = 1.0 + sin(u.iTime * 2.4) * mouthOpen * 0.08;
+    float sourceRotation = (smile - 0.5) * 0.42 + sin(u.iTime * 0.31) * 0.16;
+    float sourceAngle = angle + sourceRotation;
+    float oppositeAngle = 3.14159265 - angle + sourceRotation;
+    float2 folded = float2(cos(sourceAngle), sin(sourceAngle)) * radius * breathing;
+    float2 opposite = float2(cos(oppositeAngle), sin(oppositeAngle)) * radius * breathing;
+    float2 sampleUV = center + folded / float2(aspect, 1.0);
+    float2 oppositeUV = center + opposite / float2(aspect, 1.0);
+    float2 chroma = (0.0018 + surprise * 0.0055) * float2(cos(sourceAngle * 3.0), sin(sourceAngle * 2.0));
+    float3 firstFacet = float3(
+        camera.sample(s, saturate(sampleUV + chroma)).r,
+        camera.sample(s, saturate(sampleUV)).g,
+        camera.sample(s, saturate(sampleUV - chroma)).b
+    );
+    float3 oppositeFacet = float3(
+        camera.sample(s, saturate(oppositeUV - chroma)).r,
+        camera.sample(s, saturate(oppositeUV)).g,
+        camera.sample(s, saturate(oppositeUV + chroma)).b
+    );
+    float parity = step(0.5, fract(sector * 0.5));
+    float3 crystal = mix(firstFacet, oppositeFacet, parity);
+    float angularDistance = min(angle, max(wedge * 0.5 - angle, 0.0));
+    float seam = 1.0 - smoothstep(0.0015, 0.009, angularDistance * max(radius, 0.08));
+    float facetPulse = 0.78 + shadeHash(float2(sector, floor(u.iTime * 0.35))) * 0.22;
+    float3 prism = shadeSpectrum(fract(sector / segments + smile * 0.18 + u.iTime * 0.02));
+    crystal = shadeHueRotate(crystal, smile * 0.55);
+    crystal *= 1.08 + facetPulse * 0.12;
+    crystal += prism * (0.055 + seam * (0.54 + surprise * 0.32));
+    float person = smoothstep(0.2, 0.8, mask.sample(s, uv).r);
+    float3 live = camera.sample(s, uv).rgb;
+    float faceCore = 1.0 - smoothstep(0.08, 0.34, radius);
+    float preserve = person * faceCore * (0.14 + (1.0 - surprise) * 0.24);
+    float3 kaleidoscope = mix(live, crystal, 0.76);
+    kaleidoscope = mix(kaleidoscope, live, preserve);
+    kaleidoscope += prism * seam * 0.18;
+    return float4(saturate(kaleidoscope), 1.0);
+}

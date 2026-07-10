@@ -1,8 +1,29 @@
 /*SHADE
-{"needs": ["hands"]}
+{"needs": ["hands"], "instructions": "Show your hands, spread your fingers, and move. Wave, pinch, or push to intensify the flames."}
 SHADE*/
-float handFireHash(float2 p) {
-    return fract(sin(dot(p, float2(127.1, 311.7))) * 43758.5453);
+float2 handFireDirection(float2 vector) {
+    return vector * rsqrt(max(dot(vector, vector), 0.000001));
+}
+
+float handFireFlame(float2 point, float2 origin, float2 direction,
+                    float extent, float width, float phase) {
+    float projection = dot(point - origin, direction);
+    float amount = saturate(projection / max(extent, 0.0001));
+    float2 perpendicular = float2(-direction.y, direction.x);
+    float flutter = sin(amount * 19.0 - phase) * 0.72
+        + sin(amount * 37.0 + phase * 1.37) * 0.28;
+    float2 center = origin + direction * projection
+        + perpendicular * flutter * width * amount * 1.8;
+    float taper = mix(1.0, 0.16, amount);
+    float distanceToFlame = length(point - center);
+    float body = 1.0 - smoothstep(width * taper, width * taper * 2.8, distanceToFlame);
+    float crossSection = dot(point - center, perpendicular) / max(width, 0.0001);
+    float breakup = 0.58 + 0.42 * sin(
+        projection * 190.0 + crossSection * 2.7 - phase + sin(amount * 31.0 + phase) * 1.4
+    );
+    body *= 0.42 + smoothstep(0.18, 0.82, breakup) * 0.58;
+    float gate = step(0.0, projection) * step(projection, extent);
+    return body * gate * (1.0 - amount * 0.22);
 }
 
 float4 mainImage(float2 fragCoord, constant Uniforms& u,
@@ -12,28 +33,77 @@ float4 mainImage(float2 fragCoord, constant Uniforms& u,
                  texture2d<float> depth, sampler s) {
     float2 uv = fragCoord / u.iResolution;
     float aspect = u.iResolution.x / u.iResolution.y;
-    float2 trailOffset = float2(0.0, 2.5 / u.iResolution.y);
     float3 live = camera.sample(s, uv).rgb;
-    float3 trailSource = feedback.sample(s, uv + trailOffset).rgb;
-    float3 trailCamera = camera.sample(s, uv + trailOffset).rgb;
-    float3 trail = max(trailSource - trailCamera, 0.0) * 0.91;
-    float3 fire = float3(0.0);
+    float flowNoise = shadeNoise(uv * float2(16.0, 12.0) + float2(u.iTime * 0.8, -u.iTime * 1.6));
+    float2 point = uv * float2(aspect, 1.0);
+    point += float2(
+        sin(uv.y * 41.0 - u.iTime * 4.7),
+        cos(uv.x * 37.0 + u.iTime * 3.9)
+    ) * (0.0015 + flowNoise * 0.0025);
+
+    float2 trailUV = uv + float2(
+        sin(uv.y * 23.0 + u.iTime * 2.0) * 1.8 / u.iResolution.x,
+        4.5 / u.iResolution.y
+    );
+    float3 trailSource = feedback.sample(s, trailUV).rgb;
+    float3 trailCamera = camera.sample(s, trailUV).rgb;
+    float3 trail = max(trailSource - trailCamera, 0.0) * 0.86;
+    float gesture = max(u.iEvents[0].x, max(u.iEvents[2].x, u.iEvents[3].x));
+    float flame = 0.0;
     uint fingertips[5] = {4, 8, 12, 16, 20};
 
     for (uint hand = 0; hand < 2; ++hand) {
+        float4 wrist = u.iHands[hand][0];
+        float4 palm = u.iHands[hand][9];
+        float palmConfidence = smoothstep(0.3, 0.72, min(wrist.z, palm.z));
+        float2 wristPoint = wrist.xy * float2(aspect, 1.0);
+        float2 palmPoint = palm.xy * float2(aspect, 1.0);
+        float palmScale = max(length(palmPoint - wristPoint), 0.025);
+        float extension = 0.0;
         for (uint finger = 0; finger < 5; ++finger) {
-            float4 joint = u.iHands[hand][fingertips[finger]];
-            float confidence = smoothstep(0.35, 0.8, joint.z);
-            float2 offset = (uv - joint.xy) * float2(aspect, 1.0);
-            float distanceToTip = length(offset);
-            float seed = handFireHash(float2(hand * 7 + finger, floor(u.iTime * 18.0)));
-            float flicker = 0.82 + 0.18 * sin(u.iTime * 17.0 + seed * 6.28318);
-            float core = 1.0 - smoothstep(0.0, 0.012 * flicker, distanceToTip);
-            float glow = 1.0 - smoothstep(0.0, 0.055 * flicker, distanceToTip);
-            fire += confidence * (float3(1.0, 0.17, 0.01) * glow * 0.7
-                + float3(1.0, 0.82, 0.22) * core * 1.6);
+            float4 tip = u.iHands[hand][fingertips[finger]];
+            extension += length(tip.xy * float2(aspect, 1.0) - wristPoint)
+                / palmScale * smoothstep(0.3, 0.72, tip.z) * 0.2;
+        }
+        float openness = smoothstep(1.45, 2.85, extension);
+        float handEnergy = palmConfidence * (0.52 + openness * 0.62 + gesture * 0.75);
+        float2 palmDirection = handFireDirection(palmPoint - wristPoint);
+        float2 palmFlow = handFireDirection(mix(palmDirection, float2(0.0, -1.0), 0.58));
+        flame += handFireFlame(
+            point,
+            palmPoint,
+            palmFlow,
+            0.065 + openness * 0.05 + gesture * 0.02,
+            0.014 + handEnergy * 0.005,
+            u.iTime * 8.0 + float(hand) * 5.7
+        ) * handEnergy * 0.85;
+
+        for (uint finger = 0; finger < 5; ++finger) {
+            float4 tip = u.iHands[hand][fingertips[finger]];
+            float confidence = smoothstep(0.3, 0.78, min(wrist.z, tip.z));
+            float2 tipPoint = tip.xy * float2(aspect, 1.0);
+            float2 fingerDirection = handFireDirection(tipPoint - wristPoint);
+            float2 flameDirection = handFireDirection(mix(fingerDirection, float2(0.0, -1.0), 0.48));
+            float seed = shadeHash(float2(float(hand) * 11.0 + float(finger), floor(u.iTime * 9.0)));
+            float extent = 0.042 + openness * 0.05 + gesture * 0.025 + seed * 0.012;
+            float width = 0.0055 + openness * 0.002 + gesture * 0.0015;
+            flame += handFireFlame(
+                point,
+                tipPoint,
+                flameDirection,
+                extent,
+                width,
+                u.iTime * (8.5 + seed * 3.0) + float(finger) * 2.3
+            ) * confidence * (0.72 + handEnergy * 0.52);
         }
     }
 
-    return float4(saturate(live + trail + fire), 1.0);
+    float flameEnergy = 1.0 - exp(-flame * 0.62);
+    float glow = smoothstep(0.02, 0.68, flameEnergy);
+    float core = pow(flameEnergy, 3.2);
+    float3 fire = float3(0.72, 0.025, 0.002) * glow
+        + float3(1.0, 0.24, 0.008) * flameEnergy * 0.74
+        + float3(1.0, 0.88, 0.3) * core * 1.25;
+    float3 color = live + trail * float3(0.78, 0.11, 0.015) + fire;
+    return float4(saturate(color), 1.0);
 }

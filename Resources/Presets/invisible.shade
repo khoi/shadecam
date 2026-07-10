@@ -1,10 +1,6 @@
 /*SHADE
-{"needs": ["mask"]}
+{"needs": ["mask"], "instructions": "Capture Background first for a true cloak, then move through the frame."}
 SHADE*/
-float maxChannel(float3 color) {
-    return max(max(color.r, color.g), color.b);
-}
-
 float4 mainImage(float2 fragCoord, constant Uniforms& u,
                  texture2d<float> camera, texture2d<float> mask,
                  texture2d<float> feedback, texture2d<float> plate,
@@ -12,30 +8,54 @@ float4 mainImage(float2 fragCoord, constant Uniforms& u,
                  texture2d<float> depth, sampler s) {
     float2 uv = fragCoord / u.iResolution;
     float2 pixel = 1.0 / u.iResolution;
-    float person = smoothstep(0.12, 0.88, mask.sample(s, uv).r);
-    float wave = sin(uv.y * 73.0 + uv.x * 29.0 + u.iTime * 2.7);
-    float ripple = cos(uv.y * 41.0 - uv.x * 53.0 - u.iTime * 1.9);
-    float2 distortion = pixel * float2(wave * 5.0, ripple * 3.5);
-
-    float3 plateA = plate.sample(s, float2(0.19, 0.23)).rgb;
-    float3 plateB = plate.sample(s, float2(0.73, 0.31)).rgb;
-    float3 plateC = plate.sample(s, float2(0.47, 0.79)).rgb;
-    float plateLevel = max(maxChannel(plateA), max(maxChannel(plateB), maxChannel(plateC)));
-    float hasPlate = step(0.003, plateLevel);
-
+    float maskValue = mask.sample(s, uv).r;
+    float person = smoothstep(0.12, 0.82, maskValue);
     float3 live = camera.sample(s, uv).rgb;
-    float3 captured = plate.sample(s, uv + distortion).rgb;
-    float3 haze = camera.sample(s, uv + distortion * 1.8).rgb;
-    float3 cloak = mix(haze, captured, hasPlate);
+    float plateReady = step(0.5, plate.sample(s, float2(0.5)).a);
 
-    float left = mask.sample(s, uv - float2(pixel.x, 0.0)).r;
-    float right = mask.sample(s, uv + float2(pixel.x, 0.0)).r;
-    float up = mask.sample(s, uv - float2(0.0, pixel.y)).r;
-    float down = mask.sample(s, uv + float2(0.0, pixel.y)).r;
-    float edge = smoothstep(0.015, 0.18, length(float2(right - left, down - up)));
-    float shimmer = 0.5 + 0.5 * sin(uv.y * 91.0 - uv.x * 37.0 + u.iTime * 4.2);
-    float3 edgeColor = float3(0.35, 0.82, 1.0) * edge * shimmer * 0.18;
-    float3 color = clamp(mix(live, cloak, person) + edgeColor, 0.0, 1.0);
+    float2 gradient = float2(
+        mask.sample(s, uv + float2(pixel.x * 2.5, 0.0)).r
+            - mask.sample(s, uv - float2(pixel.x * 2.5, 0.0)).r,
+        mask.sample(s, uv + float2(0.0, pixel.y * 2.5)).r
+            - mask.sample(s, uv - float2(0.0, pixel.y * 2.5)).r
+    );
+    float gradientLength = max(length(gradient), 0.0001);
+    float2 normal = gradient / gradientLength;
+    float turbulence = shadeFbm(uv * float2(11.0, 8.0) + float2(u.iTime * 0.34, -u.iTime * 0.27));
+    float scan = sin(uv.y * u.iResolution.y * 0.24 - u.iTime * 13.0 + turbulence * 5.0);
+    float2 refraction = normal * (0.007 + 0.018 * turbulence)
+        + float2(scan, turbulence - 0.5) * pixel * float2(7.0, 5.0);
+    float2 refractedUV = uv + refraction;
+    float dispersion = 0.0025 + turbulence * 0.004;
 
-    return float4(color, 1.0);
+    float3 liveCloak = float3(
+        camera.sample(s, refractedUV + normal * dispersion).r,
+        camera.sample(s, refractedUV).g,
+        camera.sample(s, refractedUV - normal * dispersion).b
+    );
+    float3 plateCloak = float3(
+        plate.sample(s, refractedUV + normal * dispersion).r,
+        plate.sample(s, refractedUV).g,
+        plate.sample(s, refractedUV - normal * dispersion).b
+    );
+    float3 cloak = mix(liveCloak, plateCloak, plateReady);
+    float3 temporal = feedback.sample(s, uv + refraction * 0.45).rgb;
+    cloak = mix(cloak, temporal, 0.08 + turbulence * 0.07);
+
+    float2 latticePoint = uv * float2(74.0, 42.0);
+    latticePoint.x += floor(latticePoint.y) * 0.5;
+    float2 latticeCell = abs(fract(latticePoint) - 0.5);
+    float lattice = 1.0 - smoothstep(0.42, 0.49, max(latticeCell.x, latticeCell.y));
+    float shimmer = pow(0.5 + 0.5 * scan, 5.0) * (0.25 + turbulence * 0.75);
+    float edge = saturate(shadeMaskEdge(mask, s, uv, pixel * 2.0) * 4.2);
+    float expanded = smoothstep(0.06, 0.5, shadeMaskDilate(mask, s, uv, pixel * 9.0));
+    float outerRim = max(expanded - person, 0.0);
+    float3 spectral = shadeSpectrum(fract(0.48 + turbulence * 0.2 + u.iTime * 0.03));
+    float3 cloaked = cloak * (0.88 + shimmer * 0.14)
+        + spectral * lattice * shimmer * 0.14;
+
+    float3 color = mix(live, cloaked, person * 0.96);
+    color += mix(float3(0.62, 0.94, 1.0), spectral, 0.38)
+        * (edge * (0.72 + shimmer) + outerRim * 0.12);
+    return float4(saturate(color), 1.0);
 }

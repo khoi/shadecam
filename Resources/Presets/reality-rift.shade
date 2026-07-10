@@ -1,0 +1,97 @@
+/*SHADE
+{"needs": ["hands", "depth"], "instructions": "Pinch or click to open the rift. Push toward the camera to collapse it."}
+SHADE*/
+float4 mainImage(float2 fragCoord, constant Uniforms& u,
+                 texture2d<float> camera, texture2d<float> mask,
+                 texture2d<float> feedback, texture2d<float> plate,
+                 texture2d<float> signals, texture2d<float> flow,
+                 texture2d<float> depth, sampler s) {
+    float2 uv = fragCoord / u.iResolution;
+    float aspect = u.iResolution.x / u.iResolution.y;
+    float2 aspectScale = float2(aspect, 1.0);
+    float4 pinch = u.iEvents[2];
+    float4 push = u.iEvents[3];
+    float4 debug = u.iEvents[7];
+    float2 center = float2(0.5);
+    if (pinch.y >= 0.0 && (debug.y < 0.0 || pinch.y <= debug.y)) {
+        center = pinch.zw;
+    }
+    if (debug.y >= 0.0 && (pinch.y < 0.0 || debug.y < pinch.y)) {
+        center = debug.zw;
+    }
+
+    float trigger = saturate(max(pinch.x, debug.x) * 1.4);
+    float collapse = push.y >= 0.0 ? saturate(push.x * 1.45) : 0.0;
+    if (max(trigger, collapse) <= 0.001) {
+        return float4(camera.sample(s, uv).rgb, 1.0);
+    }
+    float2 point = (uv - center) * aspectScale;
+    float radius = length(point);
+    float2 radial = point / max(radius, 0.0001);
+    float2 tangent = float2(-radial.y, radial.x);
+    float polar = atan2(point.y, point.x);
+    float ringRadius = mix(0.17 + trigger * 0.025, 0.038, collapse);
+    float depthValue = 0.5;
+    if (depth.get_width() > 1) {
+        depthValue = saturate(depth.sample(s, uv).r);
+    }
+
+    float gravity = (0.028 + trigger * 0.018 + collapse * 0.022)
+        / (radius + 0.055);
+    gravity *= 1.0 - smoothstep(0.48, 0.92, radius);
+    float twist = (0.24 + trigger * 0.34) * exp(-radius * 5.8) * (1.0 - collapse * 0.65);
+    float cosine = cos(twist);
+    float sine = sin(twist);
+    float2 rotated = float2(
+        point.x * cosine - point.y * sine,
+        point.x * sine + point.y * cosine
+    );
+    float2 warpedPoint = rotated * (1.0 + gravity);
+    float depthParallax = depth.get_width() > 1 ? (depthValue - 0.5) * (0.018 + trigger * 0.014) : 0.0;
+    float2 warpedUV = center + warpedPoint / aspectScale;
+    warpedUV += (radial + tangent * sin(polar * 5.0 + u.iTime) * 0.35) * depthParallax;
+    float chromaticWidth = (0.0014 + gravity * 0.004 + trigger * 0.0025) * (1.0 - collapse * 0.45);
+    float2 chromatic = radial * chromaticWidth / aspectScale;
+    float3 lensed = float3(
+        camera.sample(s, saturate(warpedUV + chromatic)).r,
+        camera.sample(s, saturate(warpedUV)).g,
+        camera.sample(s, saturate(warpedUV - chromatic)).b
+    );
+
+    float angularNoise = shadeNoise(float2(polar * 4.5, radius * 28.0 - u.iTime * 0.22));
+    float ringWarp = radius + sin(polar * 9.0 + u.iTime * 0.8) * 0.0035
+        + (angularNoise - 0.5) * 0.006;
+    float ringDistance = abs(ringWarp - ringRadius);
+    float ringCore = 1.0 - smoothstep(0.0015, 0.009, ringDistance);
+    float ringHalo = 1.0 - smoothstep(0.008, 0.075, ringDistance);
+    float doppler = 0.5 + 0.5 * cos(polar - u.iTime * 0.18);
+    float3 ringColor = mix(float3(0.02, 0.58, 1.0), float3(1.0, 0.025, 0.34), doppler);
+    ringColor = mix(ringColor, float3(1.0, 0.88, 0.56), ringCore * 0.72);
+
+    float raysA = pow(abs(cos(polar * 13.0 + sin(polar * 7.0) * 1.8)), 42.0);
+    float raysB = pow(abs(sin(polar * 23.0 - u.iTime * 0.11)), 76.0);
+    float sector = floor((polar + 3.14159265) * 19.0);
+    float sectorGate = step(0.48, shadeHash(float2(sector, 7.0)));
+    float radialGate = smoothstep(ringRadius * 0.72, ringRadius * 1.18, radius)
+        * (1.0 - smoothstep(ringRadius * 1.7, 0.78, radius));
+    float fracture = saturate(raysA * sectorGate + raysB * 0.58) * radialGate;
+    float fracturePulse = 0.68 + 0.32 * sin(radius * 96.0 - u.iTime * 2.7);
+    float3 fractureColor = shadeSpectrum(fract(polar / 6.2831853 + 0.58 + u.iTime * 0.018));
+
+    float coreRadius = ringRadius * (0.56 + collapse * 2.2);
+    float core = 1.0 - smoothstep(coreRadius * 0.34, coreRadius, radius);
+    float photonEdge = 1.0 - smoothstep(0.0, 0.014, abs(radius - coreRadius));
+    float shockRadius = max(push.y, 0.0) * 0.44;
+    float shock = push.y >= 0.0
+        ? (1.0 - smoothstep(0.0, 0.025, abs(radius - shockRadius))) * push.x
+        : 0.0;
+    float3 color = lensed * (0.74 + 0.26 * (1.0 - core));
+    color += ringColor * (ringCore * 2.35 + ringHalo * (0.34 + trigger * 0.28));
+    color += fractureColor * fracture * fracturePulse * (0.48 + trigger * 1.25 + collapse * 1.4);
+    color += float3(0.42, 0.76, 1.0) * photonEdge * (0.36 + collapse * 1.2);
+    color += mix(float3(0.04, 0.54, 1.0), float3(1.0, 0.12, 0.48), collapse) * shock * 1.7;
+    color = mix(color, float3(0.0002, 0.0003, 0.001), core * (0.96 + collapse * 0.04));
+    float lensContrast = shadeLuminance(lensed);
+    color += ringColor * ringHalo * lensContrast * 0.16;
+    return float4(saturate(color), 1.0);
+}

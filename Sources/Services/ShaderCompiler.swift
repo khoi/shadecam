@@ -17,14 +17,18 @@ final class ShaderCompiler: @unchecked Sendable {
         self.composer = composer
         self.device = device
         self.vertexFunction = vertexFunction
+        let metadata = try ShaderMetadataParser.parse(initialSource).metadata
         let library = try device.makeLibrary(source: composer.compose(initialSource), options: nil)
-        let initial = try Self.makePipeline(device: device, vertexFunction: vertexFunction, library: library)
+        let pipeline = try Self.makePipeline(device: device, vertexFunction: vertexFunction, library: library)
+        let initial = ShaderPipelineArtifact(pipeline: pipeline, metadata: metadata)
         pipelineStore = ShaderPipelineStore(device: device, initial: initial)
     }
 
-    func compile(_ source: String) async throws -> MTLRenderPipelineState {
+    func compile(_ source: String) async throws -> ShaderPipelineArtifact {
+        let metadata = try ShaderMetadataParser.parse(source).metadata
         let library = try await device.makeLibrary(source: composer.compose(source), options: nil)
-        return try Self.makePipeline(device: device, vertexFunction: vertexFunction, library: library)
+        let pipeline = try Self.makePipeline(device: device, vertexFunction: vertexFunction, library: library)
+        return ShaderPipelineArtifact(pipeline: pipeline, metadata: metadata)
     }
 
     private static func makePipeline(

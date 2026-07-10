@@ -1,0 +1,89 @@
+/*SHADE
+{"needs": ["audio", "flow"], "instructions": "Move quickly and make sound to stretch time into spectral echoes."}
+SHADE*/
+float4 mainImage(float2 fragCoord, constant Uniforms& u,
+                 texture2d<float> camera, texture2d<float> mask,
+                 texture2d<float> feedback, texture2d<float> plate,
+                 texture2d<float> signals, texture2d<float> flow,
+                 texture2d<float> depth, sampler s) {
+    float2 uv = fragCoord / u.iResolution;
+    float aspect = u.iResolution.x / u.iResolution.y;
+    float minimumDimension = min(u.iResolution.x, u.iResolution.y);
+    float2 point = (uv - 0.5) * float2(aspect, 1.0);
+    float3 live = camera.sample(s, uv).rgb;
+    float bass = saturate(u.iAudio.y * 2.2);
+    float mid = saturate(u.iAudio.z * 2.0);
+    float treble = saturate(u.iAudio.w * 2.4);
+    float spectrum = signals.sample(s, float2(saturate(length(point) * 1.8), 0.125)).r;
+
+    float2 flowResolution = float2(max(flow.get_width(), 1u), max(flow.get_height(), 1u));
+    float2 cameraMotion = flow.sample(s, uv).xy / flowResolution;
+    cameraMotion = clamp(cameraMotion, float2(-0.035), float2(0.035));
+    float field = shadeFbm(point * 3.2 + float2(u.iTime * 0.07, -u.iTime * 0.045));
+    float angle = field * 6.2831853 + u.iTime * 0.13;
+    float2 curl = float2(cos(angle), sin(angle)) * (0.0007 + treble * 0.0012);
+    float2 orbit = float2(-point.y, point.x) * (0.0022 + bass * 0.0028);
+    float2 motion = flow.get_width() > 1 ? cameraMotion * (0.9 + bass * 1.4) : curl + orbit;
+    float motionLength = length(motion);
+    float2 direction = motion / max(motionLength, 0.0001);
+    float2 tangent = float2(-direction.y, direction.x);
+    float2 dispersion = direction * (1.7 + treble * 7.0 + spectrum * 5.0) / minimumDimension;
+    float2 spiral = tangent * (1.0 + bass * 4.0) / minimumDimension;
+    float2 advected = saturate(uv - motion);
+
+    if (u.iFrame == 0) {
+        float3 seed = float3(
+            camera.sample(s, saturate(uv + dispersion)).r,
+            live.g,
+            camera.sample(s, saturate(uv - dispersion)).b
+        );
+        float seedEdge = length(seed - live);
+        float3 seedSpectrum = shadeSpectrum(fract(shadeLuminance(live) * 0.7 + field * 0.25));
+        return float4(saturate(seed + seedSpectrum * seedEdge * 1.6), 1.0);
+    }
+
+    float3 echoA = float3(
+        feedback.sample(s, saturate(advected + dispersion)).r,
+        feedback.sample(s, advected).g,
+        feedback.sample(s, saturate(advected - dispersion)).b
+    );
+    float2 echoBUV = saturate(advected - motion * 1.7 + spiral);
+    float3 echoB = float3(
+        feedback.sample(s, saturate(echoBUV + dispersion * 1.8)).r,
+        feedback.sample(s, echoBUV).g,
+        feedback.sample(s, saturate(echoBUV - dispersion * 1.8)).b
+    );
+    float2 echoCUV = saturate(advected - motion * 3.2 - spiral * 1.7);
+    float3 echoC = float3(
+        feedback.sample(s, saturate(echoCUV - dispersion * 2.6)).r,
+        feedback.sample(s, echoCUV).g,
+        feedback.sample(s, saturate(echoCUV + dispersion * 2.6)).b
+    );
+    echoB = shadeHueRotate(echoB, 0.16 + mid * 0.38);
+    echoC = shadeHueRotate(echoC, -0.22 - treble * 0.42);
+    float3 recursive = echoA * 0.54 + echoB * 0.29 + echoC * 0.17;
+    float temporalEdge = saturate(
+        length(recursive - live) * 0.48
+            + abs(shadeLuminance(recursive) - shadeLuminance(live)) * 0.65
+    );
+    float hue = fract(shadeLuminance(live) * 0.42 + field * 0.35 + u.iTime * 0.035);
+    float3 spectralLight = shadeSpectrum(hue);
+    float persistence = 0.54 + bass * 0.09 + saturate(motionLength * minimumDimension * 0.08) * 0.07;
+    float3 color = mix(live, recursive, persistence);
+    color = shadeHueRotate(color, (mid - 0.25) * 0.24);
+    float3 spectralChroma = spectralLight - float3(shadeLuminance(spectralLight));
+    color += spectralChroma * temporalEdge * (0.18 + treble * 0.42 + spectrum * 0.24);
+    float caustic = pow(saturate(1.0 - abs(fract(field * 1.7 + u.iTime * 0.04) * 2.0 - 1.0)), 9.0);
+    float3 causticColor = shadeSpectrum(hue + 0.28);
+    causticColor -= float3(shadeLuminance(causticColor) * 0.72);
+    color += causticColor * caustic * temporalEdge * (0.08 + spectrum * 0.28);
+    float vignette = 1.0 - smoothstep(0.34, 0.92, length(point));
+    color *= 0.76 + vignette * 0.30;
+    color = max(color, float3(0.0));
+    float inputLuminance = max(shadeLuminance(color), 0.0001);
+    float mappedLuminance = 1.0 - exp(-inputLuminance * 0.88);
+    color *= mappedLuminance / inputLuminance;
+    float peak = max(color.r, max(color.g, color.b));
+    color *= min(1.0, 0.94 / max(peak, 0.0001));
+    return float4(color, 1.0);
+}

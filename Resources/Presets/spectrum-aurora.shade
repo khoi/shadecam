@@ -1,0 +1,61 @@
+/*SHADE
+{"needs": ["audio", "mask", "depth"], "instructions": "Play music or make sound to raise the aurora."}
+SHADE*/
+float4 mainImage(float2 fragCoord, constant Uniforms& u,
+                 texture2d<float> camera, texture2d<float> mask,
+                 texture2d<float> feedback, texture2d<float> plate,
+                 texture2d<float> signals, texture2d<float> flow,
+                 texture2d<float> depth, sampler s) {
+    float2 uv = fragCoord / u.iResolution;
+    float3 live = camera.sample(s, uv).rgb;
+    float person = smoothstep(0.16, 0.84, mask.sample(s, uv).r);
+    float hasDepth = depth.get_width() > 1 ? 1.0 : 0.0;
+    float sceneDepth = mix(person * 0.78, saturate(depth.sample(s, uv).r), hasDepth);
+    float3 behind = float3(0.0);
+    float3 front = float3(0.0);
+    float bass = u.iAudio.y;
+    float rms = u.iAudio.x;
+
+    for (uint layer = 0; layer < 6; ++layer) {
+        float layerValue = float(layer);
+        float frequency = fract(uv.x * (0.58 + layerValue * 0.045) + layerValue * 0.137);
+        float spectrum = signals.sample(s, float2(frequency, 0.125)).r;
+        float waveform = signals.sample(s, float2(fract(frequency + u.iTime * 0.018), 0.375)).r * 2.0 - 1.0;
+        float noise = shadeNoise(float2(uv.x * 3.2 + layerValue * 7.1, u.iTime * 0.16 + layerValue));
+        float baseHeight = 0.13 + layerValue * 0.137;
+        float curve = baseHeight
+            + sin(uv.x * (5.0 + layerValue * 0.72) + u.iTime * (0.34 + layerValue * 0.045)) * (0.025 + spectrum * 0.052)
+            + waveform * (0.018 + rms * 0.035)
+            + (noise - 0.5) * 0.055;
+        float distanceToRibbon = abs(uv.y - curve);
+        float core = 1.0 - smoothstep(0.0025, 0.009 + spectrum * 0.006, distanceToRibbon);
+        float glow = 1.0 - smoothstep(0.008, 0.075 + bass * 0.035, distanceToRibbon);
+        float curtain = exp(-distanceToRibbon * (17.0 - spectrum * 4.0));
+        curtain *= 0.45 + 0.55 * noise;
+        float intensity = 0.12 + spectrum * 1.25 + rms * 0.38;
+        float3 ribbonColor = shadeSpectrum(fract(0.52 + layerValue * 0.095 + uv.x * 0.16 + u.iTime * 0.018));
+        ribbonColor = mix(ribbonColor, float3(0.32, 0.82, 1.0), 0.28);
+        float3 ribbon = ribbonColor * (core * 1.25 + glow * 0.38 + curtain * 0.16) * intensity;
+        float ribbonDepth = 0.18 + layerValue * 0.14 + spectrum * 0.09;
+        float depthFront = smoothstep(sceneDepth - 0.035, sceneDepth + 0.035, ribbonDepth);
+        float frontLayer = step(3.0, layerValue);
+        float behindVisibility = 1.0 - person;
+        float frontVisibility = mix(1.0 - person, max(1.0 - person, depthFront), hasDepth);
+        behind += ribbon * behindVisibility * (1.0 - frontLayer);
+        front += ribbon * frontVisibility * frontLayer;
+    }
+
+    float waveform = signals.sample(s, float2(uv.x, 0.375)).r * 2.0 - 1.0;
+    float waveformY = 0.5 + waveform * (0.12 + rms * 0.12);
+    float waveformDistance = abs(uv.y - waveformY);
+    float waveformCore = 1.0 - smoothstep(0.002, 0.007, waveformDistance);
+    float waveformGlow = 1.0 - smoothstep(0.008, 0.052, waveformDistance);
+    float3 waveformColor = mix(float3(0.12, 0.72, 1.0), float3(0.92, 0.22, 1.0), uv.x);
+    float3 waveformRibbon = waveformColor * (waveformCore * 1.35 + waveformGlow * 0.32) * (0.2 + rms * 1.5);
+
+    float3 background = live * (0.31 + person * 0.49) + behind;
+    float3 color = background + front + waveformRibbon * mix(1.0 - person, 0.52 + sceneDepth * 0.48, hasDepth);
+    float edge = shadeMaskEdge(mask, s, uv, 2.0 / u.iResolution);
+    color += shadeSpectrum(fract(0.58 + u.iTime * 0.02)) * edge * (0.32 + bass * 0.88);
+    return float4(saturate(color), 1.0);
+}

@@ -1,10 +1,6 @@
 /*SHADE
-{"needs": ["mask"]}
+{"needs": ["mask"], "instructions": "Step into frame to become living static."}
 SHADE*/
-float personStaticHash(float2 p) {
-    return fract(sin(dot(p, float2(127.1, 311.7))) * 43758.5453);
-}
-
 float4 mainImage(float2 fragCoord, constant Uniforms& u,
                  texture2d<float> camera, texture2d<float> mask,
                  texture2d<float> feedback, texture2d<float> plate,
@@ -30,8 +26,8 @@ float4 mainImage(float2 fragCoord, constant Uniforms& u,
     float3 haloColor = mix(cameraColor, float3(luminance), 0.8) + float3(0.06);
     float3 background = mix(cameraColor, haloColor, halo * 0.42);
     float frame = floor(u.iTime * 24.0);
-    float fineNoise = personStaticHash(floor(fragCoord) + float2(frame * 17.0, frame * 31.0));
-    float coarseNoise = personStaticHash(floor(fragCoord * 0.5) + float2(frame * 47.0, frame * 13.0));
+    float fineNoise = shadeHash(floor(fragCoord) + float2(frame * 17.0, frame * 31.0));
+    float coarseNoise = shadeHash(floor(fragCoord * 0.5) + float2(frame * 47.0, frame * 13.0));
     float staticValue = clamp(0.06 + fineNoise * 0.8 + coarseNoise * 0.18, 0.0, 1.0);
     return float4(mix(background, float3(staticValue), person), 1.0);
 }

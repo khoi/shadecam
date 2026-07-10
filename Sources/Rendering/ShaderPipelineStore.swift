@@ -5,51 +5,70 @@ final class ShaderPipelineStore: @unchecked Sendable {
     let device: MTLDevice
 
     private let lock = NSLock()
-    private var active: MTLRenderPipelineState
-    private var lastGood: MTLRenderPipelineState
-    private var faultHandler: (@Sendable (String) -> Void)?
+    private var active: ShaderPipelineArtifact
+    private var lastGood: ShaderPipelineArtifact
+    private var generation: UInt64 = 0
+    private var faultHandler: (@Sendable (ShaderPipelineSnapshot, String) -> Void)?
 
-    init(device: MTLDevice, initial: MTLRenderPipelineState) {
+    init(device: MTLDevice, initial: ShaderPipelineArtifact) {
         self.device = device
         active = initial
         lastGood = initial
     }
 
-    func pipeline() -> MTLRenderPipelineState {
+    func snapshot() -> ShaderPipelineSnapshot {
         lock.withLock {
-            active
+            ShaderPipelineSnapshot(artifact: active, generation: generation)
         }
     }
 
-    func install(_ pipeline: MTLRenderPipelineState) {
+    func install(_ artifact: ShaderPipelineArtifact) {
         lock.withLock {
-            active = pipeline
+            active = artifact
+            generation &+= 1
         }
     }
 
-    func markSucceeded(_ pipeline: MTLRenderPipelineState) {
+    func markSucceeded(_ artifact: ShaderPipelineArtifact) {
         lock.withLock {
-            guard active === pipeline else {
+            guard active.pipeline === artifact.pipeline else {
                 return
             }
-            lastGood = pipeline
+            lastGood = artifact
         }
     }
 
-    func reportFault(_ pipeline: MTLRenderPipelineState, message: String) {
-        let handler = lock.withLock { () -> (@Sendable (String) -> Void)? in
-            guard active === pipeline, active !== lastGood else {
+    func reportFault(_ artifact: ShaderPipelineArtifact, message: String) {
+        let fallback = lock.withLock {
+            () -> (ShaderPipelineSnapshot, (@Sendable (ShaderPipelineSnapshot, String) -> Void)?)? in
+            guard active.pipeline === artifact.pipeline,
+                  active.pipeline !== lastGood.pipeline
+            else {
                 return nil
             }
             active = lastGood
-            return faultHandler
+            generation &+= 1
+            return (ShaderPipelineSnapshot(artifact: active, generation: generation), faultHandler)
         }
-        handler?(message)
+        guard let (snapshot, handler) = fallback else {
+            return
+        }
+        handler?(snapshot, message)
     }
 
-    func setFaultHandler(_ handler: @escaping @Sendable (String) -> Void) {
+    func setFaultHandler(_ handler: @escaping @Sendable (ShaderPipelineSnapshot, String) -> Void) {
         lock.withLock {
             faultHandler = handler
         }
     }
+}
+
+struct ShaderPipelineArtifact: @unchecked Sendable {
+    let pipeline: MTLRenderPipelineState
+    let metadata: ShaderMetadata
+}
+
+struct ShaderPipelineSnapshot: @unchecked Sendable {
+    let artifact: ShaderPipelineArtifact
+    let generation: UInt64
 }

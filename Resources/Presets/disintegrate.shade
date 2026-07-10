@@ -1,36 +1,11 @@
 /*SHADE
-{"needs": ["mask"]}
+{"needs": ["mask"], "instructions": "Click the preview to disintegrate. Capture Background first for a clean disappearance."}
 SHADE*/
-float disintegrateHash(float2 p) {
-    float3 q = fract(float3(p.xyx) * float3(0.1031, 0.1030, 0.0973));
-    q += dot(q, q.yzx + 33.33);
-    return fract((q.x + q.y) * q.z);
-}
-
-float disintegrateNoise(float2 p) {
-    float2 cell = floor(p);
-    float2 f = fract(p);
-    float2 blend = f * f * (3.0 - 2.0 * f);
-    float a = disintegrateHash(cell);
-    float b = disintegrateHash(cell + float2(1.0, 0.0));
-    float c = disintegrateHash(cell + float2(0.0, 1.0));
-    float d = disintegrateHash(cell + float2(1.0));
-    return mix(mix(a, b, blend.x), mix(c, d, blend.x), blend.y);
-}
-
 float disintegrateField(float2 uv, float2 resolution) {
-    float2 p = uv * float2(resolution.x / resolution.y, 1.0);
-    float billow = disintegrateNoise(p * 18.0);
-    float grain = disintegrateHash(floor(p * 190.0));
-    return clamp(billow * 0.72 + grain * 0.28, 0.0, 1.0);
-}
-
-float plateAvailability(texture2d<float> plate, sampler s) {
-    float3 a = plate.sample(s, float2(0.19, 0.23)).rgb;
-    float3 b = plate.sample(s, float2(0.50, 0.50)).rgb;
-    float3 c = plate.sample(s, float2(0.81, 0.77)).rgb;
-    float3 probe = max(a, max(b, c));
-    return step(0.001, max(probe.r, max(probe.g, probe.b)));
+    float2 point = uv * float2(resolution.x / resolution.y, 1.0);
+    float billow = shadeFbm(point * 13.0);
+    float grain = shadeHash(floor(point * 220.0));
+    return saturate(billow * 0.74 + grain * 0.26);
 }
 
 float4 mainImage(float2 fragCoord, constant Uniforms& u,
@@ -39,35 +14,54 @@ float4 mainImage(float2 fragCoord, constant Uniforms& u,
                  texture2d<float> signals, texture2d<float> flow,
                  texture2d<float> depth, sampler s) {
     float2 uv = fragCoord / u.iResolution;
-    float phase = fract(u.iTime / 6.0);
-    float person = smoothstep(0.12, 0.82, mask.sample(s, uv).r);
+    float aspect = u.iResolution.x / u.iResolution.y;
+    float3 live = camera.sample(s, uv).rgb;
+    float person = smoothstep(0.14, 0.78, mask.sample(s, uv).r);
+    float4 event = u.iEvents[7];
+    float elapsed = max(event.y, 0.0);
+    float triggered = step(0.0, event.y);
+    float dissolveIn = smoothstep(0.04, 1.35, elapsed);
+    float rebuild = smoothstep(2.35, 3.65, elapsed);
+    float cycle = triggered * saturate(dissolveIn - rebuild);
+    float2 eventOffset = (uv - event.zw) * float2(aspect, 1.0);
+    float propagation = cycle * 1.28 - length(eventOffset) * 0.42;
     float field = disintegrateField(uv, u.iResolution);
-    float retained = step(phase, field);
-    float3 cameraColor = camera.sample(s, uv).rgb;
-    float3 plateColor = plate.sample(s, uv).rgb;
-    float3 revealed = mix(cameraColor, plateColor, plateAvailability(plate, s));
-    float3 color = mix(cameraColor, revealed, person * (1.0 - retained));
-    float frontier = 1.0 - smoothstep(0.0, 0.045, abs(field - phase));
-    float3 ember = float3(1.0, 0.20, 0.015) * frontier * person;
-    color += ember * (0.35 + 0.65 * disintegrateHash(floor(fragCoord)));
-    float2 sourceUV = uv;
-    for (uint i = 0; i < 2; ++i) {
-        float sourceField = disintegrateField(sourceUV, u.iResolution);
-        float age = max(phase - sourceField, 0.0);
-        float seed = disintegrateHash(floor(sourceUV * u.iResolution / 3.0));
-        float sway = sin(seed * 19.0 + age * 28.0) * (0.012 + seed * 0.018);
-        sourceUV = uv + float2(-sway * age * 6.0, age * (0.16 + seed * 0.12));
-    }
+    float dissolved = person * smoothstep(field - 0.055, field + 0.055, propagation);
+    float frontier = person * (1.0 - smoothstep(0.0, 0.055, abs(field - propagation)));
+
+    float plateReady = step(0.5, plate.sample(s, float2(0.5)).a);
+    float2 ghostWarp = float2(
+        sin(uv.y * 73.0 + u.iTime * 4.1),
+        cos(uv.x * 51.0 - u.iTime * 3.4)
+    ) * (0.004 + cycle * 0.008);
+    float3 ghostSource = camera.sample(s, uv + ghostWarp).rgb;
+    float ghostLuminance = shadeLuminance(ghostSource);
+    float3 ghost = mix(ghostSource * 0.22, float3(0.04, 0.32, 0.48) + ghostLuminance * 0.3, 0.74);
+    ghost += feedback.sample(s, uv + float2(0.0, 3.0 / u.iResolution.y)).rgb * 0.12;
+    float3 captured = plate.sample(s, uv).rgb;
+    float3 replacement = mix(ghost, captured, plateReady);
+    float3 color = mix(live, replacement, dissolved);
+
+    float emberNoise = shadeHash(floor(fragCoord * 0.5) + floor(u.iTime * 24.0));
+    float3 emberColor = mix(float3(1.0, 0.08, 0.002), float3(1.0, 0.78, 0.16), emberNoise);
+    color += emberColor * frontier * (0.9 + event.x * 1.4);
+
+    float seed = shadeHash(floor(fragCoord / 3.0));
+    float lift = cycle * (0.035 + seed * 0.17);
+    float sway = sin(seed * 31.0 + u.iTime * 5.0) * (0.012 + lift * 0.18);
+    float2 sourceUV = uv + float2(sway, lift);
+    float sourcePerson = smoothstep(0.2, 0.76, mask.sample(s, sourceUV).r);
     float sourceField = disintegrateField(sourceUV, u.iResolution);
-    float ashAge = phase - sourceField;
-    float ashWindow = step(0.001, ashAge) * (1.0 - smoothstep(0.02, 0.22, ashAge));
-    float sourcePerson = smoothstep(0.35, 0.85, mask.sample(s, sourceUV).r);
-    float particle = smoothstep(0.72, 0.96, disintegrateHash(floor(sourceUV * u.iResolution / 2.0)));
-    float ashOpacity = ashWindow * sourcePerson * particle;
+    float sourceProgress = cycle * 1.28
+        - length((sourceUV - event.zw) * float2(aspect, 1.0)) * 0.42;
+    float ashAge = sourceProgress - sourceField;
+    float ashWindow = step(0.0, ashAge) * (1.0 - smoothstep(0.02, 0.42, ashAge));
+    float particle = smoothstep(0.8, 0.98, shadeHash(floor(sourceUV * u.iResolution / 2.0)));
+    float ash = sourcePerson * ashWindow * particle;
     float3 ashSource = camera.sample(s, sourceUV).rgb;
-    float ashLuma = dot(ashSource, float3(0.2126, 0.7152, 0.0722));
-    float3 ash = mix(ashSource, float3(0.20, 0.16, 0.13) + ashLuma * 0.18, 0.72);
-    color = mix(color, ash, ashOpacity * 0.72);
-    color += float3(1.0, 0.12, 0.01) * ashOpacity * (1.0 - smoothstep(0.0, 0.07, ashAge)) * 0.55;
-    return float4(color, 1.0);
+    float ashLuminance = shadeLuminance(ashSource);
+    float3 ashColor = mix(ashSource, float3(0.12, 0.09, 0.08) + ashLuminance * 0.22, 0.8);
+    color = mix(color, ashColor, ash * 0.82);
+    color += emberColor * ash * (1.0 - smoothstep(0.0, 0.13, ashAge)) * 1.5;
+    return float4(saturate(color), 1.0);
 }

@@ -14,7 +14,9 @@ Preset shaders implement `mainImage` with these textures:
 | 5 | `flow` | Two-component camera-pixel displacement vectors |
 | 6 | `depth` | Normalized relative inverse depth; 1 ≈ nearest, 0 ≈ farthest |
 
-`flow` and `depth` are 1×1 black placeholders until their producers are active. Shaders can guard depth access with `depth.get_width() <= 1`. Divide flow texels by `iResolution` before applying them as UV offsets.
+`flow` and `depth` are 1×1 black placeholders until their producers are active. Shaders can guard access with `texture.get_width() <= 1`. Divide flow texels by the flow texture dimensions before applying them as UV offsets.
+
+`plate` has zero alpha until the user captures a background and full alpha afterward. Sample its alpha to choose a no-plate fallback.
 
 `iExpression` contains smoothed smile, frown, surprise, and mouth-open scores from 0–1. `iAudio` contains smoothed RMS, bass, mid, and treble levels from 0–1. Both are zero until their producers are active.
 
@@ -48,10 +50,10 @@ Hand 0 is left and hand 1 is right. Unknown chirality is assigned by wrist x, le
 
 ## Preset needs
 
-Presets can start with a `/*SHADE` JSON block listing the producers they need. Valid values are `mask`, `hands`, `body`, `audio`, `expression`, `flow`, and `depth`. A preset without a block uses only the camera.
+Presets can start with a `/*SHADE` JSON block listing the producers they need and optional interaction instructions shown in the editor. Valid needs are `mask`, `hands`, `body`, `audio`, `expression`, `flow`, and `depth`. A preset without a block uses only the camera.
 
 ```text
 /*SHADE
-{"needs": ["mask"]}
+{"needs": ["mask"], "instructions": "Step into frame."}
 SHADE*/
 ```

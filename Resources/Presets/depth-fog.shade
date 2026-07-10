@@ -1,19 +1,6 @@
 /*SHADE
-{"needs": ["depth"]}
+{"needs": ["depth"], "instructions": "Move closer to and farther from the camera to travel through the fog."}
 SHADE*/
-float depthFogHash(float2 value) {
-    return fract(sin(dot(value, float2(127.1, 311.7))) * 43758.5453);
-}
-
-float depthFogNoise(float2 point) {
-    float2 cell = floor(point);
-    float2 local = fract(point);
-    float2 blend = local * local * (3.0 - 2.0 * local);
-    float low = mix(depthFogHash(cell), depthFogHash(cell + float2(1.0, 0.0)), blend.x);
-    float high = mix(depthFogHash(cell + float2(0.0, 1.0)), depthFogHash(cell + 1.0), blend.x);
-    return mix(low, high, blend.y);
-}
-
 float4 mainImage(float2 fragCoord, constant Uniforms& u,
                  texture2d<float> camera, texture2d<float> mask,
                  texture2d<float> feedback, texture2d<float> plate,
@@ -21,32 +8,67 @@ float4 mainImage(float2 fragCoord, constant Uniforms& u,
                  texture2d<float> depth, sampler s) {
     float2 uv = fragCoord / u.iResolution;
     float3 live = camera.sample(s, uv).rgb;
-    if (depth.get_width() <= 1) {
-        return float4(live, 1.0);
+    float aspect = u.iResolution.x / u.iResolution.y;
+    float2 point = (uv - 0.5) * float2(aspect, 1.0);
+    float depthAvailability = depth.get_width() > 1 ? 1.0 : 0.0;
+    float fallbackDepth = 0.36 + shadeLuminance(live) * 0.24;
+    float inverseDepth = mix(fallbackDepth, saturate(depth.sample(s, uv).r), depthAvailability);
+    float distance = 1.0 - inverseDepth;
+    float fogWeight = 0.0;
+    float fogOpacity = 0.0;
+    float3 accumulatedFog = float3(0.0);
+
+    for (uint layer = 0; layer < 4; ++layer) {
+        float layerValue = float(layer);
+        float scale = 1.45 + layerValue * 0.92;
+        float direction = layer % 2u == 0u ? 1.0 : -1.0;
+        float2 drift = float2(
+            u.iTime * direction * (0.035 + layerValue * 0.012),
+            -u.iTime * (0.018 + layerValue * 0.007)
+        );
+        float warp = shadeFbm(point * (0.72 + layerValue * 0.11) + drift * 0.42 + layerValue * 7.3);
+        float2 domain = point * float2(scale, scale * 1.28) + drift;
+        domain += float2(warp - 0.5, shadeNoise(domain * 0.58 + layerValue * 3.1) - 0.5) * 0.72;
+        float cloud = shadeFbm(domain);
+        float fine = shadeFbm(domain * 2.35 - drift * 1.7);
+        float bankCenter = 0.14 + layerValue * 0.225
+            + sin(point.x * (2.3 + layerValue * 0.46) + u.iTime * direction * 0.17) * 0.055;
+        float envelope = exp(-abs(uv.y - bankCenter) * (6.2 + layerValue * 0.85));
+        float density = smoothstep(0.28, 0.73, cloud * 0.74 + fine * 0.24 + envelope * 0.36);
+        density *= envelope;
+        float layerDepth = 0.24 + layerValue * 0.18;
+        float depthVisibility = smoothstep(inverseDepth - 0.08, inverseDepth + 0.08, layerDepth);
+        depthVisibility = mix(0.58 + layerValue * 0.07, depthVisibility, depthAvailability);
+        density *= depthVisibility * (0.72 + distance * 0.42);
+        float3 layerColor = mix(
+            float3(0.12, 0.24, 0.34),
+            float3(0.68, 0.78, 0.80),
+            layerValue / 3.0
+        );
+        layerColor += float3(0.04, 0.08, 0.10) * warp;
+        accumulatedFog += layerColor * density;
+        fogWeight += density;
+        fogOpacity = 1.0 - (1.0 - fogOpacity) * (1.0 - saturate(density * 0.58));
     }
 
-    float inverseDepth = saturate(depth.sample(s, uv).r);
-    float distance = 1.0 - inverseDepth;
-    float minimumDimension = min(u.iResolution.x, u.iResolution.y);
-    float2 point = fragCoord / minimumDimension;
-    float drift = depthFogNoise(point * 2.4 + float2(u.iTime * 0.025, -u.iTime * 0.018));
-    drift += depthFogNoise(point * 5.8 + float2(-u.iTime * 0.012, u.iTime * 0.016)) * 0.5;
-    drift /= 1.5;
+    float fogPresence = step(0.001, fogWeight);
+    float3 fogColor = mix(
+        float3(0.22, 0.32, 0.40),
+        accumulatedFog / max(fogWeight, 0.0001),
+        fogPresence
+    );
+    float baseFog = 1.0 - exp(-distance * distance * 1.55);
+    float opacity = saturate(fogOpacity * 0.82 + baseFog * 0.28);
+    float3 color = mix(live, fogColor, opacity);
 
-    float fog = 1.0 - exp(-distance * distance * (2.4 + drift * 0.8));
-    float3 coolDark = float3(0.20, 0.32, 0.44);
-    float3 coolLight = float3(0.48, 0.61, 0.72);
-    float3 fogColor = mix(coolDark, coolLight, 0.35 + drift * 0.45);
-    float3 color = mix(live, fogColor, fog * 0.82);
-
-    float2 texel = 1.0 / float2(depth.get_width(), depth.get_height());
+    float2 texel = 1.0 / float2(max(depth.get_width(), 2u), max(depth.get_height(), 2u));
     float horizontal = depth.sample(s, uv + float2(texel.x, 0.0)).r
         - depth.sample(s, uv - float2(texel.x, 0.0)).r;
     float vertical = depth.sample(s, uv + float2(0.0, texel.y)).r
         - depth.sample(s, uv - float2(0.0, texel.y)).r;
-    float edge = length(float2(horizontal, vertical));
+    float edge = length(float2(horizontal, vertical)) * depthAvailability;
     float near = smoothstep(0.55, 0.92, inverseDepth);
-    float rim = smoothstep(0.015, 0.09, edge) * near * (1.0 - fog);
-    color += float3(1.0, 0.54, 0.25) * rim * 0.11;
+    float rim = smoothstep(0.015, 0.09, edge) * near * (1.0 - opacity);
+    color += float3(0.62, 0.86, 1.0) * rim * 0.18;
     return float4(saturate(color), 1.0);
 }

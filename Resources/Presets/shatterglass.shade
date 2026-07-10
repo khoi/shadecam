@@ -1,0 +1,102 @@
+/*SHADE
+{"needs": ["expression", "depth"], "instructions": "Open your mouth or look surprised to shatter the scene. Smile to heal it."}
+SHADE*/
+float2 shatterglassSeed(float2 cell) {
+    return cell + 0.14 + float2(
+        shadeHash(cell + 3.17),
+        shadeHash(cell + 19.43)
+    ) * 0.72;
+}
+
+float2 shatterglassRotate(float2 point, float angle) {
+    float cosine = cos(angle);
+    float sine = sin(angle);
+    return float2(cosine * point.x - sine * point.y,
+                  sine * point.x + cosine * point.y);
+}
+
+float4 mainImage(float2 fragCoord, constant Uniforms& u,
+                 texture2d<float> camera, texture2d<float> mask,
+                 texture2d<float> feedback, texture2d<float> plate,
+                 texture2d<float> signals, texture2d<float> flow,
+                 texture2d<float> depth, sampler s) {
+    float2 uv = fragCoord / u.iResolution;
+    float aspect = u.iResolution.x / u.iResolution.y;
+    float2 aspectScale = float2(aspect, 1.0);
+    float2 point = uv * aspectScale;
+    float cellScale = 8.5;
+    float2 gridPoint = point * cellScale;
+    float2 baseCell = floor(gridPoint);
+    float nearestDistance = 1000.0;
+    float secondDistance = 1000.0;
+    float2 nearestCell = float2(0.0);
+    float2 nearestSeed = float2(0.0);
+
+    for (int y = -1; y <= 1; ++y) {
+        for (int x = -1; x <= 1; ++x) {
+            float2 cell = baseCell + float2(float(x), float(y));
+            float2 seed = shatterglassSeed(cell);
+            float distanceSquared = dot(gridPoint - seed, gridPoint - seed);
+            if (distanceSquared < nearestDistance) {
+                secondDistance = nearestDistance;
+                nearestDistance = distanceSquared;
+                nearestCell = cell;
+                nearestSeed = seed;
+            } else if (distanceSquared < secondDistance) {
+                secondDistance = distanceSquared;
+            }
+        }
+    }
+
+    float random = shadeHash(nearestCell * float2(7.13, 11.71));
+    float impact = saturate(max(u.iExpression.z, u.iExpression.w) * 1.18);
+    float smile = u.iExpression.x;
+    float explosion = impact * (1.0 - smile);
+    float glassAmount = saturate(0.16 + impact * 0.92 - smile * 0.88);
+    float2 faceCenter = u.iFaceRect.z > 0.0
+        ? u.iFaceRect.xy + u.iFaceRect.zw * 0.5
+        : float2(0.5);
+    float2 facetCenter = nearestSeed / cellScale;
+    float2 outward = facetCenter - faceCenter * aspectScale;
+    outward *= rsqrt(max(dot(outward, outward), 0.0001));
+
+    float hasDepth = depth.get_width() > 1 ? 1.0 : 0.0;
+    float2 facetUV = facetCenter / aspectScale;
+    float facetDepth = mix(0.5, saturate(depth.sample(s, facetUV).r), hasDepth);
+    float angle = (random - 0.5) * (0.18 + explosion * 1.65) * (0.65 + facetDepth);
+    float2 localPoint = point - facetCenter;
+    float2 samplePoint = facetCenter + shatterglassRotate(localPoint, angle);
+    samplePoint -= outward * explosion * (0.025 + random * 0.085) * (0.72 + facetDepth * 0.7);
+    samplePoint += outward * (facetDepth - 0.5) * glassAmount * 0.012;
+    float2 sampleUV = samplePoint / aspectScale;
+
+    float boundaryGap = sqrt(secondDistance) - sqrt(nearestDistance);
+    float boundary = 1.0 - smoothstep(0.008, 0.05, boundaryGap);
+    float2 impactDelta = point - faceCenter * aspectScale;
+    float impactRadius = length(impactDelta);
+    float impactAngle = atan2(impactDelta.y, impactDelta.x);
+    float crackNoise = shadeNoise(float2(impactAngle * 2.7, floor(impactRadius * 13.0)));
+    float spokeDistance = abs(sin(impactAngle * 9.0 + crackNoise * 3.4));
+    float radialCrack = 1.0 - smoothstep(0.0, 0.075, spokeDistance);
+    radialCrack *= smoothstep(0.025, 0.11, impactRadius)
+        * (1.0 - smoothstep(0.72, 1.05, impactRadius));
+    float arcDistance = abs(fract(impactRadius * (6.0 + crackNoise * 2.0) + crackNoise * 0.16) - 0.5);
+    float arcCrack = 1.0 - smoothstep(0.0, 0.035, arcDistance);
+    float crack = saturate(radialCrack + arcCrack * 0.46) * glassAmount;
+    float dispersion = glassAmount * (0.0015 + boundary * 0.006) * (0.65 + facetDepth);
+    float3 facetColor;
+    facetColor.r = camera.sample(s, sampleUV + outward * dispersion).r;
+    facetColor.g = camera.sample(s, sampleUV).g;
+    facetColor.b = camera.sample(s, sampleUV - outward * dispersion).b;
+
+    float3 live = camera.sample(s, uv).rgb;
+    float3 color = mix(live, facetColor, glassAmount);
+    float3 edgeColor = mix(float3(0.28, 0.78, 1.0),
+                           shadeSpectrum(fract(random * 0.4 + u.iTime * 0.025)),
+                           0.5);
+    color += edgeColor * (boundary * 0.34 + crack * (0.72 + explosion * 0.88));
+    color *= 1.0 - (boundary * 0.08 + crack * 0.16) * explosion;
+    float flash = u.iEvents[4].x;
+    color = mix(color, live, flash * 0.32);
+    return float4(saturate(color), 1.0);
+}

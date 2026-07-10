@@ -27,9 +27,14 @@ final class ShaderEditorModel {
     private(set) var diagnostics: [ShaderDiagnostic] = []
     private(set) var banner: String?
     private(set) var isCompiling = false
+    private(set) var metadata: ShaderMetadata
 
     var needs: Set<ShaderNeed> {
-        (try? ShaderMetadataParser.parse(source).metadata.needs) ?? []
+        metadata.needs
+    }
+
+    var instructions: String? {
+        metadata.instructions
     }
 
     let pipelineStore: ShaderPipelineStore
@@ -53,13 +58,20 @@ final class ShaderEditorModel {
             self.source = source
             self.compiler = compiler
             pipelineStore = compiler.pipelineStore
+            metadata = compiler.pipelineStore.snapshot().artifact.metadata
         } catch {
             fatalError(error.localizedDescription)
         }
 
-        pipelineStore.setFaultHandler { [weak self] message in
+        pipelineStore.setFaultHandler { [weak self] fallback, message in
             Task { @MainActor [weak self] in
-                self?.banner = message
+                guard let self,
+                      pipelineStore.snapshot().generation == fallback.generation
+                else {
+                    return
+                }
+                metadata = fallback.artifact.metadata
+                banner = message
             }
         }
     }
@@ -130,11 +142,12 @@ final class ShaderEditorModel {
         }
 
         do {
-            let pipeline = try await compiler.compile(candidate)
+            let artifact = try await compiler.compile(candidate)
             guard candidate == source, !Task.isCancelled else {
                 return
             }
-            pipelineStore.install(pipeline)
+            pipelineStore.install(artifact)
+            metadata = artifact.metadata
             diagnostics = []
             banner = nil
         } catch {

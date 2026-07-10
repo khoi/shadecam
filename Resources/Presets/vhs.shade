@@ -1,10 +1,6 @@
 /*SHADE
 {"needs": ["mask"]}
 SHADE*/
-float vhsHash(float2 p) {
-    return fract(sin(dot(p, float2(127.1, 311.7))) * 43758.5453);
-}
-
 float4 mainImage(float2 fragCoord, constant Uniforms& u,
                  texture2d<float> camera, texture2d<float> mask,
                  texture2d<float> feedback, texture2d<float> plate,
@@ -13,26 +9,50 @@ float4 mainImage(float2 fragCoord, constant Uniforms& u,
     float2 uv = fragCoord / u.iResolution;
     float2 pixel = 1.0 / u.iResolution;
     float line = floor(fragCoord.y * 0.5);
-    float frame = floor(u.iTime * 24.0);
-    float lineNoise = vhsHash(float2(line, frame)) - 0.5;
-    float bandPosition = fract(u.iTime * 0.085);
-    float bandDistance = abs(fract(uv.y - bandPosition + 0.5) - 0.5);
-    float band = smoothstep(0.085, 0.0, bandDistance);
-    float jitter = lineNoise * 2.5 + band * (lineNoise * 12.0 + 5.0);
-    float2 shiftedUV = uv + float2(jitter * pixel.x, 0.0);
-    float chroma = 2.0 + band * 5.0;
-    float smear = 4.0 + band * 9.0;
-    float3 degraded;
-    degraded.r = camera.sample(s, shiftedUV + float2(chroma * pixel.x, 0.0)).r;
-    degraded.g = camera.sample(s, shiftedUV).g;
-    degraded.b = camera.sample(s, shiftedUV - float2(chroma * pixel.x, 0.0)).b;
-    degraded = mix(degraded, camera.sample(s, shiftedUV - float2(smear * pixel.x, 0.0)).rgb, 0.16);
-    float luminance = dot(degraded, float3(0.299, 0.587, 0.114));
-    degraded = mix(float3(luminance), degraded, 0.72);
-    float grain = (vhsHash(float2(line + floor(uv.x * 31.0), frame + 19.0)) - 0.5) * 0.09;
-    degraded += grain + band * (0.08 + lineNoise * 0.06);
-    float3 clean = camera.sample(s, uv).rgb;
-    clean = saturate((clean - 0.5) * 1.08 + 0.52);
-    float person = smoothstep(0.2, 0.8, mask.sample(s, uv).r);
-    return float4(saturate(mix(degraded, clean, person)), 1.0);
+    float frame = floor(u.iTime * 29.97);
+    float lineNoise = shadeHash(float2(line, frame)) - 0.5;
+    float fineNoise = shadeHash(floor(fragCoord) + float2(frame * 17.0, frame * 37.0)) - 0.5;
+    float maskValue = mask.sample(s, uv).r;
+    float person = smoothstep(0.16, 0.76, maskValue);
+    float trackingEdge = saturate(shadeMaskEdge(mask, s, uv, pixel * 3.0) * 4.5);
+
+    float headPosition = fract(u.iTime * 0.071);
+    float headDistance = abs(fract(uv.y - headPosition + 0.5) - 0.5);
+    float headSwitch = 1.0 - smoothstep(0.025, 0.13, headDistance);
+    float trackingBand = 1.0 - smoothstep(
+        0.0,
+        0.025,
+        abs(uv.y - fract(shadeHash(float2(frame * 0.07, 8.3))))
+    );
+    float dropout = step(0.965, shadeHash(float2(floor(uv.y * 260.0), floor(u.iTime * 7.0))));
+    float jitterPixels = lineNoise * (3.2 + person * 3.8)
+        + headSwitch * (5.0 + lineNoise * 18.0)
+        + trackingBand * person * (lineNoise * 26.0 + 9.0)
+        + trackingEdge * lineNoise * 8.0;
+    float2 shiftedUV = uv + float2(jitterPixels * pixel.x, headSwitch * lineNoise * pixel.y * 2.0);
+    float chromaPixels = 2.4 + headSwitch * 6.0 + trackingEdge * 5.0 + person * trackingBand * 8.0;
+    float2 chromaOffset = float2(chromaPixels * pixel.x, 0.0);
+
+    float3 degraded = float3(
+        camera.sample(s, shiftedUV + chromaOffset).r,
+        camera.sample(s, shiftedUV).g,
+        camera.sample(s, shiftedUV - chromaOffset).b
+    );
+    float3 smear = camera.sample(s, shiftedUV - float2((6.0 + headSwitch * 14.0) * pixel.x, 0.0)).rgb;
+    float3 ghost = camera.sample(s, shiftedUV + float2(13.0 * pixel.x, 1.0 * pixel.y)).rgb;
+    degraded = mix(degraded, smear, 0.14 + headSwitch * 0.2);
+    degraded += ghost * (0.035 + trackingBand * person * 0.08);
+    float3 previous = feedback.sample(s, shiftedUV + float2(0.0, pixel.y * 2.0)).rgb;
+    degraded = mix(degraded, previous, headSwitch * 0.16 + dropout * 0.08);
+
+    float luminance = shadeLuminance(degraded);
+    degraded = mix(float3(luminance), degraded, 0.68);
+    float scanline = 0.9 + 0.1 * sin(fragCoord.y * 3.14159265);
+    float chromaCrawl = sin(fragCoord.x * 0.42 + frame * 1.7 + line * 0.07) * 0.018;
+    degraded *= scanline;
+    degraded += fineNoise * (0.085 + person * 0.035 + trackingEdge * 0.07);
+    degraded += float3(chromaCrawl, -chromaCrawl * 0.35, -chromaCrawl);
+    degraded += dropout * (0.16 + lineNoise * 0.1);
+    degraded *= 0.93 + headSwitch * (lineNoise * 0.14 - 0.04);
+    return float4(saturate(degraded), 1.0);
 }

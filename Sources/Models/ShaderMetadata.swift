@@ -12,6 +12,7 @@ enum ShaderNeed: String, CaseIterable, Codable, Sendable {
 
 struct ShaderMetadata: Equatable, Sendable {
     var needs: Set<ShaderNeed> = []
+    var instructions: String? = nil
 }
 
 struct ParsedShaderSource: Equatable, Sendable {
@@ -51,8 +52,12 @@ enum ShaderMetadataParser {
         let bodyStartLine = precedingSource.reduce(1) { line, character in
             character == "\n" ? line + 1 : line
         }
+        let instructions = payload.instructions?.trimmingCharacters(in: .whitespacesAndNewlines)
         return ParsedShaderSource(
-            metadata: ShaderMetadata(needs: Set(payload.needs)),
+            metadata: ShaderMetadata(
+                needs: Set(payload.needs),
+                instructions: instructions?.isEmpty == false ? instructions : nil
+            ),
             body: String(source[bodyStart...]),
             bodyStartLine: bodyStartLine
         )
@@ -60,6 +65,7 @@ enum ShaderMetadataParser {
 
     private struct Payload: Decodable {
         let needs: [ShaderNeed]
+        let instructions: String?
     }
 }
 

@@ -7,39 +7,48 @@ struct ShaderEditorView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Picker("Preset", selection: $model.selectedPreset) {
-                    ForEach(model.presets) { preset in
-                        Text(preset.name).tag(preset)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Picker("Preset", selection: $model.selectedPreset) {
+                        ForEach(model.presets) { preset in
+                            Text(preset.name).tag(preset)
+                        }
+                    }
+                    .labelsHidden()
+
+                    Button {
+                        model.loadShader()
+                    } label: {
+                        Image(systemName: "folder")
+                    }
+                    .help("Load Shader")
+                    .keyboardShortcut("o", modifiers: .command)
+
+                    Button {
+                        model.saveShader()
+                    } label: {
+                        Image(systemName: "square.and.arrow.down")
+                    }
+                    .help("Save Shader")
+                    .keyboardShortcut("s", modifiers: .command)
+
+                    Spacer()
+
+                    if model.isCompiling {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else if model.diagnostics.isEmpty {
+                        Label("Compiled", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.caption)
                     }
                 }
-                .labelsHidden()
 
-                Button {
-                    model.loadShader()
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .help("Load Shader")
-                .keyboardShortcut("o", modifiers: .command)
-
-                Button {
-                    model.saveShader()
-                } label: {
-                    Image(systemName: "square.and.arrow.down")
-                }
-                .help("Save Shader")
-                .keyboardShortcut("s", modifiers: .command)
-
-                Spacer()
-
-                if model.isCompiling {
-                    ProgressView()
-                        .controlSize(.small)
-                } else if model.diagnostics.isEmpty {
-                    Label("Compiled", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
+                if let instructions = model.instructions {
+                    Label(instructions, systemImage: "sparkles")
                         .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(10)

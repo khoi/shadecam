@@ -1,0 +1,36 @@
+/*SHADE
+{"needs": ["audio", "mask"], "instructions": "Play music, speak, or clap to pulse the aura."}
+SHADE*/
+float4 mainImage(float2 fragCoord, constant Uniforms& u,
+                 texture2d<float> camera, texture2d<float> mask,
+                 texture2d<float> feedback, texture2d<float> plate,
+                 texture2d<float> signals, texture2d<float> flow,
+                 texture2d<float> depth, sampler s) {
+    float2 uv = fragCoord / u.iResolution;
+    float3 live = camera.sample(s, uv).rgb;
+    float luminance = shadeLuminance(live);
+    float person = smoothstep(0.18, 0.78, mask.sample(s, uv).r);
+    float bass = u.iAudio.y;
+    float treble = u.iAudio.w;
+    float spectrum = signals.sample(s, float2(fract(uv.y * 0.74 + u.iTime * 0.025), 0.125)).r;
+    float radius = 4.0 + bass * 16.0;
+    float inner = shadeMaskDilate(mask, s, uv, radius / u.iResolution);
+    float outer = shadeMaskDilate(mask, s, uv, radius * 2.1 / u.iResolution);
+    float aura = max(smoothstep(0.10, 0.68, inner) - person, 0.0);
+    aura += max(smoothstep(0.06, 0.58, outer) - person, 0.0) * 0.32;
+    float rim = smoothstep(0.025, 0.16, shadeMaskEdge(mask, s, uv, 1.8 / u.iResolution));
+    float hue = fract(0.54 + uv.y * 0.32 - u.iTime * 0.045 + spectrum * 0.22);
+    float3 neon = shadeSpectrum(hue);
+    float3 subject = mix(float3(luminance * 0.18), live, 0.82 + treble * 0.32);
+    subject += neon * rim * (0.85 + treble * 1.5);
+    float vignette = 1.0 - smoothstep(0.18, 1.05, length((uv - 0.5) * float2(u.iResolution.x / u.iResolution.y, 1.0)));
+    float3 background = live * (0.08 + vignette * 0.2);
+    background += neon * aura * (0.45 + bass * 1.8 + spectrum * 0.8);
+    float scan = pow(0.5 + 0.5 * sin(uv.y * 170.0 - u.iTime * 5.0), 16.0);
+    background += neon * scan * aura * treble * 0.45;
+    float clap = u.iEvents[1].x;
+    float3 color = mix(background, subject, person);
+    color = mix(color, shadeHueRotate(color, 2.0944), clap * 0.72);
+    color += float3(1.0) * clap * rim * 0.9;
+    return float4(saturate(color), 1.0);
+}

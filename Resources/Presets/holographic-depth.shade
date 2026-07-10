@@ -1,0 +1,61 @@
+/*SHADE
+{"needs": ["depth"], "instructions": "Move closer to and farther from the camera to bend the depth contours."}
+SHADE*/
+float4 mainImage(float2 fragCoord, constant Uniforms& u,
+                 texture2d<float> camera, texture2d<float> mask,
+                 texture2d<float> feedback, texture2d<float> plate,
+                 texture2d<float> signals, texture2d<float> flow,
+                 texture2d<float> depth, sampler s) {
+    float2 uv = fragCoord / u.iResolution;
+    float3 live = camera.sample(s, uv).rgb;
+    float luminance = shadeLuminance(live);
+    float scanline = 0.82 + 0.18 * sin(fragCoord.y * 3.14159265 + u.iTime * 11.0);
+
+    if (depth.get_width() <= 1) {
+        float3 fallback = mix(float3(luminance) * float3(0.03, 0.24, 0.30),
+                              live * float3(0.18, 0.78, 0.92),
+                              0.42);
+        return float4(saturate(fallback * scanline), 1.0);
+    }
+
+    float2 texel = 1.0 / float2(depth.get_width(), depth.get_height());
+    float inverseDepth = saturate(depth.sample(s, uv).r);
+    float left = depth.sample(s, uv - float2(texel.x, 0.0)).r;
+    float right = depth.sample(s, uv + float2(texel.x, 0.0)).r;
+    float up = depth.sample(s, uv - float2(0.0, texel.y)).r;
+    float down = depth.sample(s, uv + float2(0.0, texel.y)).r;
+    float2 gradient = float2(right - left, down - up);
+    float normalEnergy = smoothstep(0.006, 0.075, length(gradient));
+    float2 refraction = gradient * (0.015 + normalEnergy * 0.035);
+
+    float3 refracted;
+    refracted.r = camera.sample(s, uv - refraction * 1.25).r;
+    refracted.g = camera.sample(s, uv).g;
+    refracted.b = camera.sample(s, uv + refraction * 1.25).b;
+    float refractedLuminance = shadeLuminance(refracted);
+
+    float shellPhase = inverseDepth * 22.0 - u.iTime * 1.7;
+    float shellDistance = abs(fract(shellPhase) - 0.5);
+    float shell = 1.0 - smoothstep(0.035, 0.16, shellDistance);
+    float fineShell = 1.0 - smoothstep(0.012, 0.055, abs(fract(shellPhase * 0.5 + 0.25) - 0.5));
+    float plane = fract(u.iTime * 0.16);
+    float planeDistance = abs(inverseDepth - plane);
+    planeDistance = min(planeDistance, 1.0 - planeDistance);
+    float scanPlane = 1.0 - smoothstep(0.012, 0.085, planeDistance);
+    float horizontalScan = 1.0 - smoothstep(0.0, 0.035, abs(uv.y - fract(u.iTime * 0.12)));
+
+    float hue = fract(0.47 + inverseDepth * 0.22 + u.iTime * 0.025);
+    float3 hologramColor = shadeSpectrum(hue);
+    hologramColor = mix(float3(0.02, 0.58, 0.82), hologramColor, 0.38);
+    float3 cameraHologram = refractedLuminance * hologramColor * (0.58 + inverseDepth * 0.62);
+    cameraHologram += refracted * float3(0.05, 0.20, 0.28);
+    cameraHologram *= scanline;
+    cameraHologram += hologramColor * shell * (0.32 + refractedLuminance * 0.75);
+    cameraHologram += float3(0.52, 0.92, 1.0) * fineShell * normalEnergy * 0.72;
+    cameraHologram += float3(0.12, 0.82, 1.0) * normalEnergy * 0.95;
+    cameraHologram += float3(0.72, 0.96, 1.0) * scanPlane * (0.18 + normalEnergy * 0.75);
+    cameraHologram += float3(0.18, 0.72, 1.0) * horizontalScan * 0.16;
+
+    float vignette = 1.0 - 0.55 * smoothstep(0.3, 0.85, length((uv - 0.5) * float2(u.iResolution.x / u.iResolution.y, 1.0)));
+    return float4(saturate(cameraHologram * vignette), 1.0);
+}

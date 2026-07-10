@@ -22,14 +22,11 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
     private let signalsTexture: MTLTexture
     private let emptyFlowTexture: MTLTexture
     private let emptyDepthTexture: MTLTexture
-    private let startTime = ProcessInfo.processInfo.systemUptime
-    private var previousFrameTime: TimeInterval?
-    private var frameIndex: UInt32 = 0
+    private var renderSession = ShaderRenderSession()
     private var cameraTexture: MTLTexture?
     private var plateTexture: MTLTexture?
     private var plateNeedsClear = true
     private var feedbackTextures: [MTLTexture] = []
-    private var feedbackReadIndex = 0
     private var feedbackNeedsClear = true
     private var signalTextureRevision: UInt64 = 0
 
@@ -140,9 +137,15 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         let drawableWidth = Int(view.drawableSize.width)
         let drawableHeight = Int(view.drawableSize.height)
         let feedback = makeFeedbackTextures(width: drawableWidth, height: drawableHeight)
-        let outputIndex = 1 - feedbackReadIndex
-        let output = feedback[outputIndex]
-        let pipeline = pipelineStore.pipeline()
+        let now = ProcessInfo.processInfo.systemUptime
+        let pipelineSnapshot = pipelineStore.snapshot()
+        let renderFrame = renderSession.beginFrame(generation: pipelineSnapshot.generation, at: now)
+        if renderFrame.shouldClearFeedback {
+            feedbackNeedsClear = true
+        }
+        let output = feedback[renderFrame.feedbackWriteIndex]
+        let artifact = pipelineSnapshot.artifact
+        let pipeline = artifact.pipeline
 
         encodeCameraConversion(
             commandBuffer: commandBuffer,
@@ -157,7 +160,6 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         guard let shaderEncoder = makeEncoder(commandBuffer: commandBuffer, target: output) else {
             return
         }
-        let now = ProcessInfo.processInfo.systemUptime
         let signalSnapshot = signalBus.snapshot(at: now)
         var uniforms = ShaderUniforms(
             iMouse: renderControl.currentMouse(),
@@ -168,15 +170,15 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
             iHands: signalSnapshot.hands,
             iBody: signalSnapshot.body,
             iResolution: SIMD2(Float(drawableWidth), Float(drawableHeight)),
-            iTime: Float(now - startTime),
-            iTimeDelta: Float(previousFrameTime.map { now - $0 } ?? 0),
-            iFrame: frameIndex
+            iTime: Float(renderFrame.effectTime),
+            iTimeDelta: Float(renderFrame.timeDelta),
+            iFrame: renderFrame.frameIndex
         )
         shaderEncoder.setRenderPipelineState(pipeline)
         shaderEncoder.setFragmentBytes(&uniforms, length: MemoryLayout<ShaderUniforms>.stride, index: 0)
         shaderEncoder.setFragmentTexture(camera, index: 0)
         shaderEncoder.setFragmentTexture(sourceMask, index: 1)
-        shaderEncoder.setFragmentTexture(feedback[feedbackReadIndex], index: 2)
+        shaderEncoder.setFragmentTexture(feedback[renderFrame.feedbackReadIndex], index: 2)
         shaderEncoder.setFragmentTexture(plate, index: 3)
         shaderEncoder.setFragmentTexture(signalsTexture, index: 4)
         shaderEncoder.setFragmentTexture(sourceFlow, index: 5)
@@ -208,20 +210,18 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
             lease.release()
             if let error = commandBuffer.error {
                 pipelineStore.reportFault(
-                    pipeline,
+                    artifact,
                     message: "GPU shader failed: \(error.localizedDescription)"
                 )
             } else {
-                pipelineStore.markSucceeded(pipeline)
+                pipelineStore.markSucceeded(artifact)
                 renderMetrics.recordFrame()
             }
         }
         commandBuffer.present(drawable)
         commandBuffer.commit()
 
-        previousFrameTime = now
-        frameIndex &+= 1
-        feedbackReadIndex = outputIndex
+        renderSession.completeFrame(renderFrame)
     }
 
     private func encodeCameraConversion(
@@ -253,7 +253,7 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
             encoder.endEncoding()
             plateNeedsClear = false
         } else if plateNeedsClear {
-            clear(plate, commandBuffer: commandBuffer)
+            clear(plate, alpha: 0, commandBuffer: commandBuffer)
             plateNeedsClear = false
         }
     }
@@ -263,7 +263,7 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
             return
         }
         for texture in feedbackTextures {
-            clear(texture, commandBuffer: commandBuffer)
+            clear(texture, alpha: 1, commandBuffer: commandBuffer)
         }
         feedbackNeedsClear = false
     }
@@ -284,12 +284,12 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         signalTextureRevision = snapshot.revision
     }
 
-    private func clear(_ texture: MTLTexture, commandBuffer: MTLCommandBuffer) {
+    private func clear(_ texture: MTLTexture, alpha: Double, commandBuffer: MTLCommandBuffer) {
         let descriptor = MTLRenderPassDescriptor()
         descriptor.colorAttachments[0].texture = texture
         descriptor.colorAttachments[0].loadAction = .clear
         descriptor.colorAttachments[0].storeAction = .store
-        descriptor.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1)
+        descriptor.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, alpha)
         commandBuffer.makeRenderCommandEncoder(descriptor: descriptor)?.endEncoding()
     }
 
@@ -378,7 +378,7 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
                 usage: [.renderTarget, .shaderRead]
             )
         }
-        feedbackReadIndex = 0
+        renderSession.resetFeedback()
         feedbackNeedsClear = true
         return feedbackTextures
     }

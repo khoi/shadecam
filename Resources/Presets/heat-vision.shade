@@ -1,0 +1,42 @@
+/*SHADE
+{"needs": ["depth", "mask"], "instructions": "Move closer to and farther from the camera to shift the heat field."}
+SHADE*/
+float3 heatVisionPalette(float heat) {
+    float value = saturate(heat);
+    float3 cold = mix(float3(0.002, 0.004, 0.025), float3(0.08, 0.015, 0.28), smoothstep(0.0, 0.24, value));
+    float3 ember = mix(float3(0.46, 0.005, 0.08), float3(1.0, 0.12, 0.01), smoothstep(0.28, 0.58, value));
+    float3 flame = mix(float3(1.0, 0.24, 0.0), float3(1.0, 0.94, 0.18), smoothstep(0.55, 0.84, value));
+    float3 whiteHot = mix(flame, float3(1.0, 1.0, 0.94), smoothstep(0.82, 1.0, value));
+    return value < 0.28 ? cold : (value < 0.58 ? ember : whiteHot);
+}
+
+float4 mainImage(float2 fragCoord, constant Uniforms& u,
+                 texture2d<float> camera, texture2d<float> mask,
+                 texture2d<float> feedback, texture2d<float> plate,
+                 texture2d<float> signals, texture2d<float> flow,
+                 texture2d<float> depth, sampler s) {
+    float2 uv = fragCoord / u.iResolution;
+    float3 live = camera.sample(s, uv).rgb;
+    float luminance = shadeLuminance(live);
+    float person = smoothstep(0.12, 0.82, mask.sample(s, uv).r);
+    float hasDepth = step(2.0, float(depth.get_width()));
+    float inverseDepth = mix(person * 0.72 + luminance * 0.18, depth.sample(s, uv).r, hasDepth);
+    float breathing = sin(u.iTime * 2.1 + inverseDepth * 8.0) * 0.018;
+    float grain = shadeHash(floor(fragCoord * 0.72) + floor(u.iTime * 18.0) * 13.7) - 0.5;
+    float heat = luminance * 0.42 + inverseDepth * 0.48 + person * 0.18 + breathing + grain * 0.035;
+    float3 thermal = heatVisionPalette(heat);
+
+    float2 depthTexel = 1.0 / float2(max(depth.get_width(), 2u), max(depth.get_height(), 2u));
+    float2 depthGradient = float2(
+        depth.sample(s, uv + float2(depthTexel.x, 0.0)).r - depth.sample(s, uv - float2(depthTexel.x, 0.0)).r,
+        depth.sample(s, uv + float2(0.0, depthTexel.y)).r - depth.sample(s, uv - float2(0.0, depthTexel.y)).r
+    ) * hasDepth;
+    float silhouetteEdge = shadeMaskEdge(mask, s, uv, 2.0 / u.iResolution);
+    float edge = smoothstep(0.015, 0.12, length(depthGradient) + silhouetteEdge * 0.38);
+    float scan = 0.92 + 0.08 * sin(fragCoord.y * 1.8 + u.iTime * 3.0);
+    float reticle = 1.0 - smoothstep(0.002, 0.008, abs(fract(inverseDepth * 12.0 - u.iTime * 0.18) - 0.5));
+    thermal *= scan;
+    thermal += float3(0.22, 0.72, 1.0) * edge * 0.65;
+    thermal += float3(1.0, 0.45, 0.04) * reticle * hasDepth * 0.08;
+    return float4(saturate(thermal), 1.0);
+}

@@ -1,0 +1,70 @@
+/*SHADE
+{"needs": ["mask", "flow"], "instructions": "Move across the frame to pull the ink into flowing trails."}
+SHADE*/
+float4 mainImage(float2 fragCoord, constant Uniforms& u,
+                 texture2d<float> camera, texture2d<float> mask,
+                 texture2d<float> feedback, texture2d<float> plate,
+                 texture2d<float> signals, texture2d<float> flow,
+                 texture2d<float> depth, sampler s) {
+    float2 uv = fragCoord / u.iResolution;
+    float aspect = u.iResolution.x / u.iResolution.y;
+    float2 point = (uv - 0.5) * float2(aspect, 1.0);
+    float2 texel = 1.0 / u.iResolution;
+    float3 black = float3(0.004, 0.006, 0.012);
+    float3 ivory = float3(0.96, 0.91, 0.80);
+    float3 cyan = float3(0.01, 0.78, 0.92);
+    float3 magenta = float3(0.98, 0.015, 0.39);
+    float3 live = camera.sample(s, uv).rgb;
+    float luminance = shadeLuminance(live);
+    float grain = shadeNoise(fragCoord * 0.42 + float2(u.iTime * 0.8, 0.0)) - 0.5;
+    float tone = smoothstep(0.18, 0.76, luminance + grain * 0.055);
+    float horizontal = shadeLuminance(camera.sample(s, uv + float2(texel.x * 2.0, 0.0)).rgb)
+        - shadeLuminance(camera.sample(s, uv - float2(texel.x * 2.0, 0.0)).rgb);
+    float vertical = shadeLuminance(camera.sample(s, uv + float2(0.0, texel.y * 2.0)).rgb)
+        - shadeLuminance(camera.sample(s, uv - float2(0.0, texel.y * 2.0)).rgb);
+    float detail = smoothstep(0.035, 0.18, length(float2(horizontal, vertical)));
+    float3 base = mix(black, ivory, tone);
+    base = mix(base, black, detail * 0.72);
+
+    float person = smoothstep(0.18, 0.82, mask.sample(s, uv).r);
+    float edge = saturate(shadeMaskEdge(mask, s, uv, texel * 2.25) * 3.4);
+    float expanded = smoothstep(0.08, 0.62, shadeMaskDilate(mask, s, uv, texel * 11.0));
+    float plumeBand = saturate(expanded - person);
+    float turbulence = shadeFbm(point * 4.8 + float2(u.iTime * 0.11, -u.iTime * 0.18));
+    float filament = shadeNoise(point * 19.0 + float2(-u.iTime * 0.37, u.iTime * 0.21));
+    float2 flowResolution = float2(max(flow.get_width(), 1u), max(flow.get_height(), 1u));
+    float2 cameraMotion = flow.sample(s, uv).xy / flowResolution;
+    cameraMotion = clamp(cameraMotion, float2(-0.04), float2(0.04));
+    float2 smokeMotion = float2((turbulence - 0.5) * 0.0045, -0.0020 - filament * 0.0012);
+    float2 advection = flow.get_width() > 1 ? cameraMotion * 1.35 + smokeMotion : smokeMotion * 1.8;
+    float2 sourceUV = saturate(uv - advection);
+    float2 blur = float2(texel.x * (2.0 + turbulence * 5.0), texel.y * 2.0);
+    float3 previous = feedback.sample(s, sourceUV).rgb * 0.56;
+    previous += feedback.sample(s, saturate(sourceUV + blur)).rgb * 0.22;
+    previous += feedback.sample(s, saturate(sourceUV - blur)).rgb * 0.22;
+    float previousMaximum = max(previous.r, max(previous.g, previous.b));
+    float previousMinimum = min(previous.r, min(previous.g, previous.b));
+    float previousChroma = previousMaximum - previousMinimum;
+    float carriedDensity = smoothstep(0.16, 0.52, previousChroma) * (0.93 + turbulence * 0.05);
+    float cyanWeight = saturate((previous.g + previous.b - previous.r * 2.0) * 1.2);
+    float magentaWeight = saturate((previous.r + previous.b * 0.25 - previous.g * 1.25) * 1.5);
+    float pigmentTotal = max(cyanWeight + magentaWeight, 0.0001);
+    float3 carriedColor = mix(cyan, magenta, magentaWeight / pigmentTotal);
+
+    float paletteField = shadeFbm(point * 3.1 + float2(-u.iTime * 0.08, u.iTime * 0.06));
+    float paletteSplit = smoothstep(0.38, 0.66, paletteField + sin(point.y * 13.0 - u.iTime * 0.7) * 0.08);
+    float3 injectedColor = mix(cyan, magenta, paletteSplit);
+    float brokenEdge = edge * (0.52 + filament * 0.82);
+    float plume = plumeBand * smoothstep(0.34, 0.78, turbulence + filament * 0.24) * 0.78;
+    float injection = saturate(brokenEdge + plume);
+    float density = saturate(carriedDensity * 0.96 + injection);
+    float injectionMix = injection / max(carriedDensity + injection, 0.0001);
+    float3 pigment = mix(carriedColor, injectedColor, injectionMix);
+    float3 color = mix(base, pigment, density * 0.94);
+    float vein = edge * smoothstep(0.42, 0.78, 1.0 - filament);
+    color = mix(color, black, vein * 0.68);
+    color += ivory * edge * smoothstep(0.70, 0.98, filament) * 0.46;
+    float vignette = 1.0 - smoothstep(0.36, 0.94, length(point));
+    color *= 0.68 + vignette * 0.38;
+    return float4(saturate(color), 1.0);
+}

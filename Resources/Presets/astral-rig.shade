@@ -1,0 +1,90 @@
+/*SHADE
+{"needs": ["body", "hands", "audio"], "instructions": "Step fully into frame, raise your hands, and move. Sound makes the rig flare."}
+SHADE*/
+float astralRigCapsule(float2 point, float4 first, float4 second, float aspect, float width) {
+    float confidence = smoothstep(0.28, 0.72, min(first.z, second.z));
+    float2 scale = float2(aspect, 1.0);
+    float distanceToBone = shadeSegmentDistance(point, first.xy * scale, second.xy * scale);
+    float core = 1.0 - smoothstep(width * 0.18, width * 0.5, distanceToBone);
+    float glow = 1.0 - smoothstep(width * 0.5, width * 3.4, distanceToBone);
+    return confidence * (core * 1.5 + glow * 0.38);
+}
+
+float astralRigJoint(float2 point, float4 joint, float aspect) {
+    float2 delta = point - joint.xy * float2(aspect, 1.0);
+    float distanceSquared = dot(delta, delta);
+    float confidence = smoothstep(0.3, 0.78, joint.z);
+    float core = 1.0 - smoothstep(0.000006, 0.000038, distanceSquared);
+    float halo = 1.0 - smoothstep(0.00004, 0.00062, distanceSquared);
+    return confidence * (core * 1.6 + halo * 0.34);
+}
+
+float4 mainImage(float2 fragCoord, constant Uniforms& u,
+                 texture2d<float> camera, texture2d<float> mask,
+                 texture2d<float> feedback, texture2d<float> plate,
+                 texture2d<float> signals, texture2d<float> flow,
+                 texture2d<float> depth, sampler s) {
+    float2 uv = fragCoord / u.iResolution;
+    float aspect = u.iResolution.x / u.iResolution.y;
+    float2 point = uv * float2(aspect, 1.0);
+    float3 live = camera.sample(s, uv).rgb;
+    float2 ghostOffset = float2(sin(u.iTime * 0.7), -1.5 - u.iAudio.y * 3.0) / u.iResolution;
+    float3 previous = feedback.sample(s, uv + ghostOffset).rgb;
+    float motionDifference = length(previous - live);
+    float ghostAmount = 0.12 + smoothstep(0.05, 0.42, motionDifference) * 0.32;
+    float3 ghost = shadeHueRotate(previous, 0.34 + u.iAudio.z * 0.8) * float3(0.58, 0.76, 1.08);
+    float3 color = mix(live * 0.52, ghost * 0.78, ghostAmount);
+
+    uint2 bodyBones[16] = {
+        uint2(0, 5), uint2(5, 6), uint2(6, 8), uint2(8, 10),
+        uint2(5, 7), uint2(7, 9), uint2(9, 11), uint2(5, 12),
+        uint2(12, 13), uint2(13, 15), uint2(15, 17), uint2(12, 14),
+        uint2(14, 16), uint2(16, 18), uint2(6, 7), uint2(13, 14)
+    };
+    uint fingertips[5] = {4, 8, 12, 16, 20};
+    float pulse = 0.68 + u.iAudio.x * 0.7 + u.iAudio.y * 1.15;
+    float3 rig = float3(0.0);
+
+    for (uint index = 0; index < 16; ++index) {
+        uint2 bone = bodyBones[index];
+        float energy = astralRigCapsule(point, u.iBody[bone.x], u.iBody[bone.y], aspect, 0.0065);
+        float hue = fract(0.52 + float(index) * 0.021 + u.iTime * 0.018);
+        rig += shadeSpectrum(hue) * energy * pulse;
+    }
+
+    for (uint joint = 0; joint < 19; ++joint) {
+        float energy = astralRigJoint(point, u.iBody[joint], aspect);
+        rig += mix(float3(0.12, 0.72, 1.0), float3(0.86, 0.28, 1.0), float(joint) / 18.0)
+            * energy * pulse;
+    }
+
+    for (uint hand = 0; hand < 2; ++hand) {
+        float handedness = float(hand);
+        for (uint joint = 0; joint < 21; ++joint) {
+            float energy = astralRigJoint(point, u.iHands[hand][joint], aspect);
+            float hue = fract(0.08 + handedness * 0.48 + float(joint) * 0.016 + u.iTime * 0.025);
+            rig += shadeSpectrum(hue) * energy * pulse * 0.72;
+        }
+        for (uint finger = 0; finger < 5; ++finger) {
+            float energy = astralRigCapsule(
+                point,
+                u.iHands[hand][0],
+                u.iHands[hand][fingertips[finger]],
+                aspect,
+                0.0048
+            );
+            float hue = fract(0.55 + handedness * 0.24 + float(finger) * 0.055 - u.iTime * 0.035);
+            rig += shadeSpectrum(hue) * energy * pulse * 0.82;
+        }
+    }
+
+    float4 wave = u.iEvents[0];
+    float2 waveDelta = (uv - wave.zw) * float2(aspect, 1.0);
+    float waveRadius = max(wave.y, 0.0) * 0.42;
+    float waveRing = 1.0 - smoothstep(0.008, 0.03, abs(length(waveDelta) - waveRadius));
+    rig += shadeSpectrum(fract(u.iTime * 0.08)) * waveRing * wave.x * 1.8;
+
+    color += rig;
+    color += float3(0.04, 0.12, 0.24) * shadeLuminance(rig) * (0.5 + u.iAudio.w);
+    return float4(saturate(color), 1.0);
+}

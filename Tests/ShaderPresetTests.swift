@@ -7,16 +7,8 @@ final class ShaderPresetTests: XCTestCase {
         let bundle = Bundle(for: ShaderPresetTests.self)
         let presets = ShaderPresetLibrary.load(in: bundle)
 
-        XCTAssertEqual(presets.count, 20)
+        XCTAssertEqual(Set(presets.map(\.resourceName)).count, presets.count)
         XCTAssertTrue(presets.contains(where: { $0.resourceName == "passthrough" }))
-        XCTAssertTrue(presets.contains(where: { $0.resourceName == "hand-fire" }))
-        XCTAssertTrue(presets.contains(where: { $0.resourceName == "gesture-playground" }))
-        XCTAssertTrue(presets.contains(where: { $0.resourceName == "spectrum-bars" }))
-        XCTAssertTrue(presets.contains(where: { $0.resourceName == "bass-aura" }))
-        XCTAssertTrue(presets.contains(where: { $0.resourceName == "mood-weather" }))
-        XCTAssertTrue(presets.contains(where: { $0.resourceName == "flow-smear" }))
-        XCTAssertTrue(presets.contains(where: { $0.resourceName == "elemental-avatar" }))
-        XCTAssertTrue(presets.contains(where: { $0.resourceName == "depth-fog" }))
         for preset in presets {
             XCTAssertTrue(try preset.source(in: bundle).contains("float4 mainImage"))
         }
@@ -43,7 +35,7 @@ final class ShaderPresetTests: XCTestCase {
     func testParsesMetadataAndStripsItFromSource() throws {
         let source = """
         /*SHADE
-        {"needs": ["mask", "audio"]}
+        {"needs": ["mask", "audio"], "instructions": "Clap to pulse."}
         SHADE*/
         float4 mainImage() {}
         """
@@ -51,6 +43,7 @@ final class ShaderPresetTests: XCTestCase {
         let parsed = try ShaderMetadataParser.parse(source)
 
         XCTAssertEqual(parsed.metadata.needs, [.mask, .audio])
+        XCTAssertEqual(parsed.metadata.instructions, "Clap to pulse.")
         XCTAssertEqual(parsed.body, "float4 mainImage() {}")
         XCTAssertEqual(parsed.bodyStartLine, 4)
     }
@@ -59,7 +52,19 @@ final class ShaderPresetTests: XCTestCase {
         let parsed = try ShaderMetadataParser.parse("float4 mainImage() {}")
 
         XCTAssertEqual(parsed.metadata.needs, [])
+        XCTAssertNil(parsed.metadata.instructions)
         XCTAssertEqual(parsed.bodyStartLine, 1)
+    }
+
+    func testEmptyInstructionsAreOmitted() throws {
+        let source = """
+        /*SHADE
+        {"needs": [], "instructions": "  "}
+        SHADE*/
+        float4 mainImage() {}
+        """
+
+        XCTAssertNil(try ShaderMetadataParser.parse(source).metadata.instructions)
     }
 
     func testRejectsUnknownNeed() {
@@ -73,22 +78,46 @@ final class ShaderPresetTests: XCTestCase {
         XCTAssertThrowsError(try ShaderMetadataParser.parse(source))
     }
 
-    func testBundledPresetNeedsMatchMaskUsage() throws {
+    func testBundledPresetNeedsMatchSourceUsage() throws {
         let bundle = Bundle(for: Self.self)
 
         for preset in ShaderPresetLibrary.load(in: bundle) {
-            let parsed = try ShaderMetadataParser.parse(preset.source(in: bundle))
-            let expected: Set<ShaderNeed> = switch preset.resourceName {
-            case "event-pulse", "passthrough": []
-            case "gesture-playground", "hand-fire": [.hands]
-            case "bass-aura", "spectrum-bars": [.audio, .mask]
-            case "mood-weather": [.expression, .mask]
-            case "flow-smear": [.flow]
-            case "depth-fog": [.depth]
-            case "elemental-avatar": [.audio, .body, .expression, .hands, .mask]
-            default: [.mask]
-            }
-            XCTAssertEqual(parsed.metadata.needs, expected, preset.resourceName)
+            let source = try preset.source(in: bundle)
+            let parsed = try ShaderMetadataParser.parse(source)
+            XCTAssertEqual(parsed.metadata.needs, detectedNeeds(in: parsed.body), preset.resourceName)
         }
+    }
+
+    private func detectedNeeds(in source: String) -> Set<ShaderNeed> {
+        var needs: Set<ShaderNeed> = []
+        if source.contains("mask.sample") {
+            needs.insert(.mask)
+        }
+        if source.contains("u.iHands")
+            || source.contains("u.iEvents[0]")
+            || source.contains("u.iEvents[2]")
+            || source.contains("u.iEvents[3]")
+        {
+            needs.insert(.hands)
+        }
+        if source.contains("u.iBody") {
+            needs.insert(.body)
+        }
+        if source.contains("u.iAudio")
+            || source.contains("signals.sample")
+            || source.contains("u.iEvents[1]")
+        {
+            needs.insert(.audio)
+        }
+        if source.contains("u.iExpression") || source.contains("u.iEvents[4]") {
+            needs.insert(.expression)
+        }
+        if source.contains("flow.sample") || source.contains("flow.get_") {
+            needs.insert(.flow)
+        }
+        if source.contains("depth.sample") || source.contains("depth.get_") {
+            needs.insert(.depth)
+        }
+        return needs
     }
 }

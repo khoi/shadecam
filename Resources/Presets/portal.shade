@@ -1,82 +1,88 @@
 /*SHADE
-{"needs": ["mask"]}
+{"needs": ["mask"], "instructions": "Step fully into frame to turn your silhouette into a portal."}
 SHADE*/
-float portalHash(float2 p) {
-    return fract(sin(dot(p, float2(127.1, 311.7))) * 43758.5453);
-}
-
-float portalNoise(float2 p) {
-    float2 cell = floor(p);
-    float2 local = fract(p);
-    float2 blend = local * local * (3.0 - 2.0 * local);
-    float lower = mix(portalHash(cell), portalHash(cell + float2(1.0, 0.0)), blend.x);
-    float upper = mix(portalHash(cell + float2(0.0, 1.0)), portalHash(cell + 1.0), blend.x);
-    return mix(lower, upper, blend.y);
-}
-
-float portalFbm(float2 p) {
-    float value = 0.0;
-    float amplitude = 0.5;
-    for (int i = 0; i < 5; ++i) {
-        value += portalNoise(p) * amplitude;
-        p = p * 2.03 + float2(17.1, 9.2);
-        amplitude *= 0.5;
-    }
-    return value;
-}
-
-float portalStars(float2 p, float scale, float depth, float time) {
-    float2 drift = float2(time * (0.018 + depth * 0.011), time * (0.007 - depth * 0.003));
-    float2 field = (p + drift) * scale;
-    float2 cell = floor(field);
-    float2 local = fract(field) - 0.5;
-    float seed = portalHash(cell + depth * 41.0);
-    float2 position = float2(
-        portalHash(cell + depth * 17.0 + 3.7),
-        portalHash(cell + depth * 29.0 + 8.3)
-    ) - 0.5;
-    float distanceToStar = length(local - position);
-    float size = mix(0.025, 0.075, portalHash(cell + depth * 13.0 + 5.1));
-    float core = smoothstep(size, 0.0, distanceToStar);
-    float halo = smoothstep(size * 3.5, 0.0, distanceToStar) * 0.25;
-    float twinkle = 0.55 + 0.45 * sin(time * (2.0 + depth) + seed * 31.0);
-    return step(0.93 + depth * 0.012, seed) * (core + halo) * twinkle;
-}
-
 float4 mainImage(float2 fragCoord, constant Uniforms& u,
                  texture2d<float> camera, texture2d<float> mask,
                  texture2d<float> feedback, texture2d<float> plate,
                  texture2d<float> signals, texture2d<float> flow,
                  texture2d<float> depth, sampler s) {
     float2 uv = fragCoord / u.iResolution;
-    float2 p = (fragCoord - u.iResolution * 0.5) / u.iResolution.y;
-    float nebulaA = portalFbm(p * 2.1 + float2(u.iTime * 0.018, -u.iTime * 0.011));
-    float nebulaB = portalFbm(p * 3.0 + float2(7.4, 2.8) - u.iTime * 0.009);
-    float cloud = smoothstep(0.34, 0.88, nebulaA);
-    float3 space = mix(float3(0.008, 0.012, 0.045), float3(0.18, 0.035, 0.32), cloud);
-    space += float3(0.02, 0.12, 0.24) * smoothstep(0.48, 0.9, nebulaB) * 0.75;
-    float starsNear = portalStars(p, 23.0, 0.0, u.iTime);
-    float starsMid = portalStars(p, 37.0, 1.0, u.iTime);
-    float starsFar = portalStars(p, 57.0, 2.0, u.iTime);
-    space += float3(0.72, 0.88, 1.0) * starsNear;
-    space += float3(1.0, 0.72, 0.96) * starsMid * 0.8;
-    space += float3(0.58, 0.75, 1.0) * starsFar * 0.65;
+    float2 pixel = 1.0 / u.iResolution;
+    float3 live = camera.sample(s, uv).rgb;
     float maskValue = mask.sample(s, uv).r;
-    float2 edgeTap = 1.5 / u.iResolution;
-    float2 glowTap = 4.5 / u.iResolution;
-    float2 edgeGradient = float2(
-        mask.sample(s, uv + float2(edgeTap.x, 0.0)).r - mask.sample(s, uv - float2(edgeTap.x, 0.0)).r,
-        mask.sample(s, uv + float2(0.0, edgeTap.y)).r - mask.sample(s, uv - float2(0.0, edgeTap.y)).r
+    float person = smoothstep(0.18, 0.78, maskValue);
+    float nearMask = smoothstep(0.08, 0.62, shadeMaskDilate(mask, s, uv, pixel * 8.0));
+    float middleMask = smoothstep(0.06, 0.56, shadeMaskDilate(mask, s, uv, pixel * 24.0));
+    float farMask = smoothstep(0.04, 0.48, shadeMaskDilate(mask, s, uv, pixel * 54.0));
+    float nearShell = max(nearMask - person, 0.0);
+    float middleShell = max(middleMask - nearMask, 0.0);
+    float farShell = max(farMask - middleMask, 0.0);
+    float portal = saturate(nearShell + middleShell + farShell);
+    float tunnelDepth = saturate(nearShell * 0.1 + middleShell * 0.48 + farShell * 0.9);
+
+    float2 gradient = float2(
+        mask.sample(s, uv + float2(pixel.x * 3.0, 0.0)).r
+            - mask.sample(s, uv - float2(pixel.x * 3.0, 0.0)).r,
+        mask.sample(s, uv + float2(0.0, pixel.y * 3.0)).r
+            - mask.sample(s, uv - float2(0.0, pixel.y * 3.0)).r
     );
-    float2 glowGradient = float2(
-        mask.sample(s, uv + float2(glowTap.x, 0.0)).r - mask.sample(s, uv - float2(glowTap.x, 0.0)).r,
-        mask.sample(s, uv + float2(0.0, glowTap.y)).r - mask.sample(s, uv - float2(0.0, glowTap.y)).r
+    float gradientLength = max(length(gradient), 0.0001);
+    float2 normal = gradient / gradientLength;
+    float2 tangent = float2(-normal.y, normal.x);
+    float noise = shadeFbm(uv * float2(7.0, 5.0) + float2(u.iTime * 0.16, -u.iTime * 0.11));
+    float spiral = sin(tunnelDepth * 34.0 - u.iTime * 5.2 + noise * 9.0);
+    float2 refraction = normal * (0.004 + tunnelDepth * 0.018) * spiral
+        + tangent * portal * (noise - 0.5) * 0.025;
+    float2 refractedUV = uv + refraction;
+    float chroma = 0.003 + portal * 0.006;
+    float3 refracted = float3(
+        camera.sample(s, refractedUV + normal * chroma).r,
+        camera.sample(s, refractedUV).g,
+        camera.sample(s, refractedUV - normal * chroma).b
     );
-    float outline = saturate(length(edgeGradient) * 2.0);
-    float outlineGlow = saturate(length(glowGradient) * 0.65);
-    float person = smoothstep(0.18, 0.82, maskValue);
-    float3 background = camera.sample(s, uv).rgb * 0.68;
-    float3 color = mix(background, space, person);
-    color += float3(0.22, 0.72, 1.0) * outline + float3(0.68, 0.18, 1.0) * outlineGlow * 0.3;
+
+    float bands = pow(0.5 + 0.5 * spiral, 3.0);
+    float3 cosmic = shadeSpectrum(fract(0.56 + tunnelDepth * 0.22 + noise * 0.12 + u.iTime * 0.025));
+    float aspect = u.iResolution.x / u.iResolution.y;
+    float2 portalPoint = (uv - 0.5) * float2(aspect, 1.0);
+    float portalRadius = length(portalPoint);
+    float portalAngle = atan2(portalPoint.y, portalPoint.x);
+    float interiorNoise = shadeFbm(float2(
+        portalAngle * 1.8 - u.iTime * 0.16,
+        log(portalRadius + 0.035) * 3.6 + u.iTime * 0.42
+    ));
+    float interiorBands = pow(
+        0.5 + 0.5 * sin(
+            log(portalRadius + 0.025) * 27.0
+                - portalAngle * 5.0
+                + u.iTime * 4.2
+                + interiorNoise * 7.0
+        ),
+        4.0
+    );
+    float3 interiorColor = shadeSpectrum(fract(
+        0.56 + interiorNoise * 0.24 - log(portalRadius + 0.04) * 0.08 + u.iTime * 0.035
+    ));
+    float core = exp(-portalRadius * 8.0);
+    float stars = step(
+        0.975,
+        shadeHash(floor(portalPoint * 170.0 / max(portalRadius + 0.3, 0.1)) + floor(u.iTime * 2.0))
+    );
+    float3 interior = float3(0.004, 0.008, 0.035)
+        + interiorColor * (0.16 + interiorBands * 1.2)
+        + float3(0.7, 0.88, 1.0) * stars * (0.35 + interiorBands)
+        + float3(0.32, 0.08, 0.74) * core;
+    float edge = saturate(shadeMaskEdge(mask, s, uv, pixel * 2.2) * 3.4);
+    float rimPulse = 0.72 + 0.28 * sin(u.iTime * 3.2 + noise * 8.0);
+    float3 tunnel = refracted * (0.34 + bands * 0.28)
+        + cosmic * (0.22 + bands * 1.18) * portal;
+    float3 previous = feedback.sample(s, uv + tangent * pixel * 2.0).rgb;
+    tunnel += previous * portal * 0.08;
+
+    float3 color = live * (0.2 + person * 0.08);
+    color = mix(color, interior, person * 0.97);
+    color = mix(color, tunnel, portal * 0.92);
+    color += mix(float3(0.05, 0.7, 1.0), float3(0.92, 0.12, 1.0), noise)
+        * edge * rimPulse * 1.45;
     return float4(saturate(color), 1.0);
 }
