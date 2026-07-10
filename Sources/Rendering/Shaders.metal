@@ -6,11 +6,6 @@ struct VertexOutput {
     float2 uv;
 };
 
-struct MaskAlignmentUniforms {
-    float2 cameraSize;
-    float2 maskSize;
-};
-
 vertex VertexOutput fullscreenVertex(uint vertexID [[vertex_id]]) {
     const float2 positions[] = {
         float2(-1.0, -1.0),
@@ -43,21 +38,4 @@ fragment float4 cameraConversionFragment(
         y + 1.8556 * cbcr.x
     );
     return float4(rgb, 1.0);
-}
-
-fragment float4 maskAlignmentFragment(
-    VertexOutput input [[stage_in]],
-    constant MaskAlignmentUniforms& uniforms [[buffer(0)]],
-    texture2d<float> mask [[texture(0)]],
-    sampler textureSampler [[sampler(0)]])
-{
-    const float cameraAspect = uniforms.cameraSize.x / uniforms.cameraSize.y;
-    const float maskAspect = uniforms.maskSize.x / uniforms.maskSize.y;
-    float2 uv = input.uv;
-    if (cameraAspect > maskAspect) {
-        uv.y = (uv.y - 0.5) * maskAspect / cameraAspect + 0.5;
-    } else if (cameraAspect < maskAspect) {
-        uv.x = (uv.x - 0.5) * cameraAspect / maskAspect + 0.5;
-    }
-    return float4(mask.sample(textureSampler, uv).rrr, 1.0);
 }

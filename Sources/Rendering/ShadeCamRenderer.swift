@@ -13,7 +13,6 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
     private let renderMetrics: RenderMetrics
     private let commandQueue: MTLCommandQueue
     private let conversionPipeline: MTLRenderPipelineState
-    private let maskAlignmentPipeline: MTLRenderPipelineState
     private let sampler: MTLSamplerState
     private let textureCache: CVMetalTextureCache
     private let emptyMaskTexture: MTLTexture
@@ -21,7 +20,6 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
     private var previousFrameTime: TimeInterval?
     private var frameIndex: UInt32 = 0
     private var cameraTexture: MTLTexture?
-    private var alignedMaskTexture: MTLTexture?
     private var plateTexture: MTLTexture?
     private var plateNeedsClear = true
     private var feedbackTextures: [MTLTexture] = []
@@ -41,8 +39,7 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
             let commandQueue = device.makeCommandQueue(),
             let library = device.makeDefaultLibrary(),
             let vertexFunction = library.makeFunction(name: "fullscreenVertex"),
-            let conversionFunction = library.makeFunction(name: "cameraConversionFragment"),
-            let maskAlignmentFunction = library.makeFunction(name: "maskAlignmentFragment")
+            let conversionFunction = library.makeFunction(name: "cameraConversionFragment")
         else {
             fatalError("Metal is unavailable")
         }
@@ -61,19 +58,10 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         conversionDescriptor.fragmentFunction = conversionFunction
         conversionDescriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
 
-        let maskAlignmentDescriptor = MTLRenderPipelineDescriptor()
-        maskAlignmentDescriptor.vertexFunction = vertexFunction
-        maskAlignmentDescriptor.fragmentFunction = maskAlignmentFunction
-        maskAlignmentDescriptor.colorAttachments[0].pixelFormat = .r16Float
-
-        guard
-            let conversionPipeline = try? device.makeRenderPipelineState(descriptor: conversionDescriptor),
-            let maskAlignmentPipeline = try? device.makeRenderPipelineState(descriptor: maskAlignmentDescriptor)
-        else {
+        guard let conversionPipeline = try? device.makeRenderPipelineState(descriptor: conversionDescriptor) else {
             fatalError("Metal pipelines could not be created")
         }
         self.conversionPipeline = conversionPipeline
-        self.maskAlignmentPipeline = maskAlignmentPipeline
 
         let samplerDescriptor = MTLSamplerDescriptor()
         samplerDescriptor.minFilter = .linear
@@ -138,7 +126,6 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
             makeTexture(from: $0, plane: 0, format: .r16Float)
         }
         let sourceMask = maskReference.flatMap(CVMetalTextureGetTexture) ?? emptyMaskTexture
-        let alignedMask = makeAlignedMaskTexture(width: cameraWidth, height: cameraHeight)
         let plate = makePlateTexture(width: cameraWidth, height: cameraHeight)
         let drawableWidth = Int(view.drawableSize.width)
         let drawableHeight = Int(view.drawableSize.height)
@@ -152,12 +139,6 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
             target: camera,
             luma: luma,
             chroma: chroma
-        )
-        encodeMaskAlignment(
-            commandBuffer: commandBuffer,
-            target: alignedMask,
-            source: sourceMask,
-            cameraSize: SIMD2(Float(cameraWidth), Float(cameraHeight))
         )
         preparePlate(commandBuffer: commandBuffer, camera: camera, plate: plate)
         prepareFeedback(commandBuffer: commandBuffer)
@@ -177,7 +158,7 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         shaderEncoder.setRenderPipelineState(pipeline)
         shaderEncoder.setFragmentBytes(&uniforms, length: MemoryLayout<ShaderUniforms>.stride, index: 0)
         shaderEncoder.setFragmentTexture(camera, index: 0)
-        shaderEncoder.setFragmentTexture(alignedMask, index: 1)
+        shaderEncoder.setFragmentTexture(sourceMask, index: 1)
         shaderEncoder.setFragmentTexture(feedback[feedbackReadIndex], index: 2)
         shaderEncoder.setFragmentTexture(plate, index: 3)
         shaderEncoder.setFragmentSamplerState(sampler, index: 0)
@@ -233,27 +214,6 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         encoder.setRenderPipelineState(conversionPipeline)
         encoder.setFragmentTexture(CVMetalTextureGetTexture(luma), index: 0)
         encoder.setFragmentTexture(CVMetalTextureGetTexture(chroma), index: 1)
-        encoder.setFragmentSamplerState(sampler, index: 0)
-        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
-        encoder.endEncoding()
-    }
-
-    private func encodeMaskAlignment(
-        commandBuffer: MTLCommandBuffer,
-        target: MTLTexture,
-        source: MTLTexture,
-        cameraSize: SIMD2<Float>
-    ) {
-        guard let encoder = makeEncoder(commandBuffer: commandBuffer, target: target) else {
-            return
-        }
-        var uniforms = MaskAlignmentUniforms(
-            cameraSize: cameraSize,
-            maskSize: SIMD2(Float(source.width), Float(source.height))
-        )
-        encoder.setRenderPipelineState(maskAlignmentPipeline)
-        encoder.setFragmentBytes(&uniforms, length: MemoryLayout<MaskAlignmentUniforms>.stride, index: 0)
-        encoder.setFragmentTexture(source, index: 0)
         encoder.setFragmentSamplerState(sampler, index: 0)
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
         encoder.endEncoding()
@@ -349,22 +309,6 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         return cameraTexture!
     }
 
-    private func makeAlignedMaskTexture(width: Int, height: Int) -> MTLTexture {
-        if let alignedMaskTexture,
-           alignedMaskTexture.width == width,
-           alignedMaskTexture.height == height
-        {
-            return alignedMaskTexture
-        }
-        alignedMaskTexture = makeTexture(
-            format: .r16Float,
-            width: width,
-            height: height,
-            usage: [.renderTarget, .shaderRead]
-        )
-        return alignedMaskTexture!
-    }
-
     private func makePlateTexture(width: Int, height: Int) -> MTLTexture {
         if let plateTexture,
            plateTexture.width == width,
@@ -420,11 +364,6 @@ final class ShadeCamRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         }
         return texture
     }
-}
-
-private struct MaskAlignmentUniforms {
-    var cameraSize: SIMD2<Float>
-    var maskSize: SIMD2<Float>
 }
 
 private final class MetalTextureLease: @unchecked Sendable {
