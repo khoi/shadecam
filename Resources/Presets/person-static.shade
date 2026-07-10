@@ -1,0 +1,33 @@
+float personStaticHash(float2 p) {
+    return fract(sin(dot(p, float2(127.1, 311.7))) * 43758.5453);
+}
+
+float4 mainImage(float2 fragCoord, constant Uniforms& u,
+                 texture2d<float> camera, texture2d<float> mask,
+                 texture2d<float> feedback, texture2d<float> plate,
+                 sampler s) {
+    float2 uv = fragCoord / u.iResolution;
+    float3 cameraColor = camera.sample(s, uv).rgb;
+    float personMask = mask.sample(s, uv).r;
+    float person = smoothstep(0.18, 0.78, personMask);
+    float minimumDimension = min(u.iResolution.x, u.iResolution.y);
+    float2 haloOffset = float2(minimumDimension * 0.008) / u.iResolution;
+    float expandedMask = personMask;
+    expandedMask = max(expandedMask, mask.sample(s, uv + float2(haloOffset.x, 0.0)).r);
+    expandedMask = max(expandedMask, mask.sample(s, uv - float2(haloOffset.x, 0.0)).r);
+    expandedMask = max(expandedMask, mask.sample(s, uv + float2(0.0, haloOffset.y)).r);
+    expandedMask = max(expandedMask, mask.sample(s, uv - float2(0.0, haloOffset.y)).r);
+    expandedMask = max(expandedMask, mask.sample(s, uv + haloOffset).r);
+    expandedMask = max(expandedMask, mask.sample(s, uv - haloOffset).r);
+    expandedMask = max(expandedMask, mask.sample(s, uv + float2(haloOffset.x, -haloOffset.y)).r);
+    expandedMask = max(expandedMask, mask.sample(s, uv + float2(-haloOffset.x, haloOffset.y)).r);
+    float halo = max(smoothstep(0.12, 0.62, expandedMask) - person, 0.0);
+    float luminance = dot(cameraColor, float3(0.2126, 0.7152, 0.0722));
+    float3 haloColor = mix(cameraColor, float3(luminance), 0.8) + float3(0.06);
+    float3 background = mix(cameraColor, haloColor, halo * 0.42);
+    float frame = floor(u.iTime * 24.0);
+    float fineNoise = personStaticHash(floor(fragCoord) + float2(frame * 17.0, frame * 31.0));
+    float coarseNoise = personStaticHash(floor(fragCoord * 0.5) + float2(frame * 47.0, frame * 13.0));
+    float staticValue = clamp(0.06 + fineNoise * 0.8 + coarseNoise * 0.18, 0.0, 1.0);
+    return float4(mix(background, float3(staticValue), person), 1.0);
+}

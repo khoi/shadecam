@@ -1,0 +1,13 @@
+struct ShadeVSOut {
+    float4 position [[position]];
+};
+
+fragment float4 shade_fragment(ShadeVSOut in [[stage_in]],
+                               constant Uniforms& u [[buffer(0)]],
+                               texture2d<float> camera [[texture(0)]],
+                               texture2d<float> mask [[texture(1)]],
+                               texture2d<float> feedback [[texture(2)]],
+                               texture2d<float> plate [[texture(3)]],
+                               sampler s [[sampler(0)]]) {
+    return mainImage(in.position.xy, u, camera, mask, feedback, plate, s);
+}

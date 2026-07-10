@@ -1,0 +1,11 @@
+#include <metal_stdlib>
+using namespace metal;
+
+struct Uniforms {
+    float4 iMouse;
+    float4 iFaceRect;
+    float2 iResolution;
+    float iTime;
+    float iTimeDelta;
+    uint iFrame;
+};

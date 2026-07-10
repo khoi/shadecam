@@ -2,15 +2,58 @@ import SwiftUI
 
 struct ContentView: View {
     @State private var camera = CameraCaptureService()
+    @State private var shader = ShaderEditorModel()
+    @State private var renderControl = RenderControl()
 
     var body: some View {
-        CameraPreviewView(frameStore: camera.frameStore, maskStore: camera.maskStore)
-            .frame(minWidth: 800, minHeight: 500)
-            .task {
-                await camera.start()
+        VStack(spacing: 0) {
+            if let banner = shader.banner {
+                HStack {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                    Text(banner)
+                        .lineLimit(2)
+                    Spacer()
+                    Button {
+                        shader.dismissBanner()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .buttonStyle(.plain)
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(.red)
             }
-            .onDisappear {
-                camera.stop()
+
+            HSplitView {
+                CameraPreviewView(
+                    frameStore: camera.frameStore,
+                    maskStore: camera.maskStore,
+                    faceRectStore: camera.faceRectStore,
+                    pipelineStore: shader.pipelineStore,
+                    renderControl: renderControl
+                )
+                .frame(minWidth: 520, minHeight: 500)
+
+                ShaderEditorView(model: shader)
+                    .frame(minWidth: 360, idealWidth: 460, maxWidth: 620)
             }
+        }
+        .task {
+            await camera.start()
+        }
+        .onDisappear {
+            camera.stop()
+        }
+        .toolbar {
+            ToolbarItem {
+                Button {
+                    renderControl.requestPlateCapture()
+                } label: {
+                    Label("Capture Background", systemImage: "camera.aperture")
+                }
+            }
+        }
     }
 }

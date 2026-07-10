@@ -14,12 +14,27 @@ let project = Project(
                 "NSMainStoryboardFile": "",
             ]),
             sources: ["Sources/**"],
+            resources: ["Resources/**"],
             entitlements: .dictionary([
                 "com.apple.security.app-sandbox": true,
                 "com.apple.security.device.camera": true,
             ]),
             settings: .settings(base: [
                 "CODE_SIGN_STYLE": "Automatic",
+                "SWIFT_VERSION": "6.0",
+            ])
+        ),
+        .target(
+            name: "ShadeCamTests",
+            destinations: [.mac],
+            product: .unitTests,
+            bundleId: "app.supabit.shadecam.tests",
+            deploymentTargets: .macOS("15.0"),
+            infoPlist: .default,
+            sources: ["Tests/**"],
+            resources: ["Resources/Presets/**", "Resources/Shader/**"],
+            dependencies: [.target(name: "ShadeCam")],
+            settings: .settings(base: [
                 "SWIFT_VERSION": "6.0",
             ])
         ),

@@ -1,0 +1,6 @@
+float4 mainImage(float2 fragCoord, constant Uniforms& u,
+                 texture2d<float> camera, texture2d<float> mask,
+                 texture2d<float> feedback, texture2d<float> plate,
+                 sampler s) {
+    return float4(camera.sample(s, fragCoord / u.iResolution).rgb, 1.0);
+}

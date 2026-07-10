@@ -5,16 +5,22 @@ import Foundation
 final class CameraCaptureService: NSObject, @unchecked Sendable {
     let frameStore = PixelBufferStore()
     let maskStore: PixelBufferStore
+    let faceRectStore: FaceRectStore
 
     private let captureQueue = DispatchQueue(label: "app.supabit.shadecam.capture")
     private let session = AVCaptureSession()
     private let segmentation: PersonSegmentationService
+    private let faceDetection: FaceDetectionService
+    private var capturedFrameCount = 0
     private var configured = false
 
     override init() {
         let maskStore = PixelBufferStore()
+        let faceRectStore = FaceRectStore()
         self.maskStore = maskStore
+        self.faceRectStore = faceRectStore
         segmentation = PersonSegmentationService(maskStore: maskStore)
+        faceDetection = FaceDetectionService(faceRectStore: faceRectStore)
         super.init()
     }
 
@@ -90,6 +96,12 @@ extension CameraCaptureService: AVCaptureVideoDataOutputSampleBufferDelegate {
         let segmentationFrame = SendablePixelBuffer(value: frame)
         Task { [segmentation, segmentationFrame] in
             await segmentation.process(segmentationFrame)
+        }
+        capturedFrameCount += 1
+        if capturedFrameCount.isMultiple(of: 10) {
+            Task { [faceDetection, segmentationFrame] in
+                await faceDetection.process(segmentationFrame)
+            }
         }
     }
 }

@@ -1,0 +1,37 @@
+float maxChannel(float3 color) {
+    return max(max(color.r, color.g), color.b);
+}
+
+float4 mainImage(float2 fragCoord, constant Uniforms& u,
+                 texture2d<float> camera, texture2d<float> mask,
+                 texture2d<float> feedback, texture2d<float> plate,
+                 sampler s) {
+    float2 uv = fragCoord / u.iResolution;
+    float2 pixel = 1.0 / u.iResolution;
+    float person = smoothstep(0.12, 0.88, mask.sample(s, uv).r);
+    float wave = sin(uv.y * 73.0 + uv.x * 29.0 + u.iTime * 2.7);
+    float ripple = cos(uv.y * 41.0 - uv.x * 53.0 - u.iTime * 1.9);
+    float2 distortion = pixel * float2(wave * 5.0, ripple * 3.5);
+
+    float3 plateA = plate.sample(s, float2(0.19, 0.23)).rgb;
+    float3 plateB = plate.sample(s, float2(0.73, 0.31)).rgb;
+    float3 plateC = plate.sample(s, float2(0.47, 0.79)).rgb;
+    float plateLevel = max(maxChannel(plateA), max(maxChannel(plateB), maxChannel(plateC)));
+    float hasPlate = step(0.003, plateLevel);
+
+    float3 live = camera.sample(s, uv).rgb;
+    float3 captured = plate.sample(s, uv + distortion).rgb;
+    float3 haze = camera.sample(s, uv + distortion * 1.8).rgb;
+    float3 cloak = mix(haze, captured, hasPlate);
+
+    float left = mask.sample(s, uv - float2(pixel.x, 0.0)).r;
+    float right = mask.sample(s, uv + float2(pixel.x, 0.0)).r;
+    float up = mask.sample(s, uv - float2(0.0, pixel.y)).r;
+    float down = mask.sample(s, uv + float2(0.0, pixel.y)).r;
+    float edge = smoothstep(0.015, 0.18, length(float2(right - left, down - up)));
+    float shimmer = 0.5 + 0.5 * sin(uv.y * 91.0 - uv.x * 37.0 + u.iTime * 4.2);
+    float3 edgeColor = float3(0.35, 0.82, 1.0) * edge * shimmer * 0.18;
+    float3 color = clamp(mix(live, cloak, person) + edgeColor, 0.0, 1.0);
+
+    return float4(color, 1.0);
+}
